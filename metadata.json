@@ -1,0 +1,6 @@
+{
+  "name": "Level 0: Backrooms FPS",
+  "description": "A first-person 3D Backrooms survival horror shooter set inside the endlessly humming fluorescent corridors of Level 0.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
