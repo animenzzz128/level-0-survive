@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { HorrorAudioEngine } from './audio';
+import { DEFAULT_BINDINGS, GameAction, KeyBindings, KeyHints, actionForCode, keyHintsFor, normalizeCode } from './controls';
 import { DirectorActions, ThreatDirector } from './director';
 import { DoorInstance } from './doors';
 import { BackroomsEntity, EntityHooks, EntityWorld, PlayerPerception } from './entities';
@@ -11,7 +12,7 @@ import {
   MAZE_SIZE,
   WALL_HEIGHT,
   computeBfsDistances,
-  findNextStepToward,
+  findWeightedPath,
   generateBackroomsLevel,
   gridToWorld,
   hasLineOfSight,
@@ -83,6 +84,7 @@ declare global {
         playerPos: { x: number; y: number; z: number };
         yaw: number;
         pitch: number;
+        director: { intensity: number; pace: string };
         entities: Array<{
           id: number;
           label: string;
@@ -159,6 +161,21 @@ const LIGHT_EXIT = -2;
 const LIGHT_TAPE_BASE = -10; // tape at pickup index i is LIGHT_TAPE_BASE - i
 /** Tapes and the exit count as this much closer (squared) so they keep a light slot near the player. */
 const FEATURE_LIGHT_WEIGHT = 0.35;
+
+/** A closed door on a hunter's route costs this many steps: about the time it takes to batter one down. */
+const DOOR_PATH_COST = 6;
+/** Extra cost per step on a route another hunter is already using, so pairs split up and close in from two sides. */
+const SHARED_ROUTE_COST = 2;
+/** Half-width kept clear when shortcutting a route (entity radius plus a margin). */
+const WALK_CLEARANCE = 0.45;
+/** Entities push each other apart to at least this distance (centre to centre). */
+const ENTITY_SPACING = 1.1;
+const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 const GLOW_HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 const GLOW_ON = new THREE.Color(1, 1, 1);
@@ -338,10 +355,7 @@ export class BackroomsEngine {
 
   private readonly entityWorld: EntityWorld = {
     lineOfSight: (a, b) => this.lineOfSight(a, b),
-    nextStepToward: (from, to, allowClosedDoors = true) =>
-      findNextStepToward(from, to, this.navGrid) ??
-      // Engaged entities with no way around a closed door head straight for it (and batter it open).
-      (allowClosedDoors ? findNextStepToward(from, to, this.level.grid) : null),
+    findPath: (from, to, throughDoors, hunterId) => this.findEntityPath(from, to, throughDoors, hunterId),
     resolveCollision: (pos, radius) =>
       resolveCircleWallCollision(pos, radius, this.level.grid, this.level.pillars, this.colliders),
     randomPointNear: (center, radiusCells) => this.randomWalkableNear(center, radiusCells),
@@ -370,7 +384,31 @@ export class BackroomsEngine {
       for (const ent of this.entities) ent.alertTo(this.playerPos);
     },
     setThreatLevel: (level) => this.audio.setThreatLevel(level),
+    easeOff: () => {
+      for (const ent of this.entities) ent.calmDown();
+    },
+    provoke: () => {
+      // The nearest wandering entity that is not already on top of the player goes to look nearby.
+      let best: BackroomsEntity | null = null;
+      let bestDist = Infinity;
+      for (const ent of this.entities) {
+        if (!ent.alive || ent.state !== 'patrol') continue;
+        const d = Math.hypot(ent.position.x - this.playerPos.x, ent.position.z - this.playerPos.z);
+        if (d >= 8 && d < bestDist) {
+          best = ent;
+          bestDist = d;
+        }
+      }
+      const spot = best ? this.randomWalkableNear(this.playerPos, 2) : null;
+      return Boolean(best && spot && best.investigatePoint(spot));
+    },
   };
+
+  // Hunters' current routes: another hunter pays a little extra to share one (see findEntityPath).
+  private readonly hunterRoutes = new Map<number, { cells: number[]; time: number }>();
+  private readonly pathCost = new Float32Array(MAZE_SIZE * MAZE_SIZE);
+  /** Walking steps from every cell to the exit, for the HUD's exit arrow. */
+  private exitField: Int16Array = new Int16Array(0);
 
   private notifCounter = 1;
   private notification: HudNotification | null = null;
@@ -389,6 +427,11 @@ export class BackroomsEngine {
   private lastNearestEntityLabel: string | null = null;
 
   private keys: Record<string, boolean> = {};
+  // Rebindable controls: the game reads actions (held('sprint')), never raw keys.
+  private bindings: KeyBindings = { ...DEFAULT_BINDINGS };
+  private keyHints: KeyHints = keyHintsFor(DEFAULT_BINDINGS);
+  /** Toggle-sprint: on until pressed again or the player stops moving. */
+  private sprintLatched = false;
   private pointerLocked = false;
   // Set once pointer lock has succeeded; where it never does (e.g. sandboxed iframe) clicks keep drag-look + fire.
   private pointerLockEverWorked = false;
@@ -802,6 +845,10 @@ export class BackroomsEngine {
     this.buildEnvironmentalProps();
     this.buildDoors();
     this.buildDesks();
+    this.buildLandmarks();
+    this.buildSigns();
+    this.exitField = computeBfsDistances(this.level.grid, this.level.exitCell.gx, this.level.exitCell.gz);
+    this.hunterRoutes.clear();
 
     // 9. Spawn Entities and the director that keeps them coming
     this.director = new ThreatDirector(difficulty, this.directorActions);
@@ -1136,6 +1183,269 @@ export class BackroomsEngine {
     }
   }
 
+  /** One distinctive prop per quadrant (vending machine, water cooler, CRT on a cart, neon sign). */
+  private buildLandmarks(): void {
+    const mat = (color: number, extra: THREE.MeshStandardMaterialParameters = {}) =>
+      new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.2, ...extra });
+    for (const spec of this.level.landmarks) {
+      const grp = new THREE.Group();
+      // Footprint against the wall (m); halfWidth 0 means no collider (wall-mounted, above head height).
+      let halfWidth = 0;
+      let depth = 0.06;
+      if (spec.kind === 'vending') {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.9, 0.8), mat(0x6e1c18, { roughness: 0.45, metalness: 0.35 }));
+        body.position.y = 0.95;
+        const glass = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.62, 1.15),
+          mat(0x1c2a30, { emissive: new THREE.Color(0x8fe3ff), emissiveIntensity: 0.85, roughness: 0.15 }),
+        );
+        glass.position.set(-0.08, 1.22, 0.401);
+        const keypad = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 0.04), mat(0x2b2b2b));
+        keypad.position.set(0.33, 1.2, 0.41);
+        const tray = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.16, 0.05), mat(0x0d0d0d));
+        tray.position.set(-0.08, 0.42, 0.41);
+        grp.add(body, glass, keypad, tray);
+        halfWidth = 0.48;
+        depth = 0.8;
+      } else if (spec.kind === 'cooler') {
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.38, 1.0, 0.38), mat(0xd9d5c6, { roughness: 0.7, metalness: 0.05 }));
+        base.position.y = 0.5;
+        const bottle = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.16, 0.16, 0.46, 18),
+          mat(0x4a8fd0, {
+            transparent: true,
+            opacity: 0.75,
+            emissive: new THREE.Color(0x2a78c8),
+            emissiveIntensity: 0.55,
+            roughness: 0.1,
+          }),
+        );
+        bottle.position.y = 1.24;
+        const tap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.06), mat(0x2f6fb0));
+        tap.position.set(0, 0.82, 0.2);
+        grp.add(base, bottle, tap);
+        halfWidth = 0.2;
+        depth = 0.4;
+      } else if (spec.kind === 'crt') {
+        const cart = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.72, 0.55), mat(0x3b3a35, { metalness: 0.5, roughness: 0.5 }));
+        cart.position.y = 0.36;
+        const tv = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.5, 0.48), mat(0x24221d, { roughness: 0.7 }));
+        tv.position.y = 0.97;
+        const screen = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.46, 0.34),
+          mat(0x0b1a10, { emissive: new THREE.Color(0x7dffa8), emissiveIntensity: 0.7, roughness: 0.2 }),
+        );
+        screen.position.set(0, 0.98, 0.241);
+        grp.add(cart, tv, screen);
+        halfWidth = 0.4;
+        depth = 0.55;
+      } else {
+        const board = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.48, 0.06), mat(0x15120d, { roughness: 0.9 }));
+        board.position.y = 2.25;
+        const neon = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.08, 0.4),
+          new THREE.MeshBasicMaterial({ map: this.materials.neonSignTex, transparent: true, depthWrite: false, toneMapped: false }),
+        );
+        neon.position.set(0, 2.25, 0.035);
+        grp.add(board, neon);
+      }
+      // Flush against the wall behind it: the wall is one half-cell back along -front.
+      const backX = -Math.sin(spec.rotY);
+      const backZ = -Math.cos(spec.rotY);
+      const cell = gridToWorld(spec.gx, spec.gz);
+      const offset = CELL_SIZE / 2 - depth / 2 - 0.04;
+      grp.position.set(cell.x + backX * offset, 0, cell.z + backZ * offset);
+      grp.rotation.y = spec.rotY;
+      mergeStaticMeshes(grp);
+      grp.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = halfWidth > 0;
+        mesh.receiveShadow = true;
+        if (halfWidth > 0) this.wallRayMeshes.push(mesh);
+      });
+      this.levelGroup.add(grp);
+      if (halfWidth > 0) {
+        const wallOnZ = Math.abs(backX) < 0.5;
+        this.colliders.push({
+          x: grp.position.x,
+          z: grp.position.z,
+          halfX: wallOnZ ? halfWidth : depth / 2,
+          halfZ: wallOnZ ? depth / 2 : halfWidth,
+          active: true,
+        });
+      }
+    }
+  }
+
+  /** Arrow graffiti at junctions, one draw call for all of them (mirrored ones use mirrored UVs, not scale). */
+  private buildSigns(): void {
+    if (this.level.signs.length === 0) return;
+    const right = new THREE.PlaneGeometry(1.1, 0.55);
+    const left = right.clone();
+    const uv = left.getAttribute('uv') as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+    const grp = new THREE.Group();
+    for (const s of this.level.signs) {
+      const mesh = new THREE.Mesh(s.flip === 1 ? right : left, this.materials.arrowSign);
+      mesh.position.set(s.x, s.y, s.z);
+      mesh.rotation.y = s.rotY;
+      grp.add(mesh);
+    }
+    mergeStaticMeshes(grp);
+    right.dispose();
+    left.dispose();
+    this.levelGroup.add(grp);
+  }
+
+  /**
+   * Point for the HUD exit arrow: the farthest cell along the walking route that is in plain sight, and the
+   * distance along the route from here.
+   */
+  private exitRoute(): { x: number; z: number; distance: number } {
+    const p = this.playerPos;
+    const exit = this.level.exitPos;
+    const field = this.exitField;
+    let cell = worldToGrid(p.x, p.z);
+    const at = (gx: number, gz: number) =>
+      gx < 0 || gz < 0 || gx >= MAZE_SIZE || gz >= MAZE_SIZE ? -1 : field[gz * MAZE_SIZE + gx];
+    let steps = at(cell.gx, cell.gz);
+    if (steps <= 0) return { x: exit.x, z: exit.z, distance: Math.hypot(exit.x - p.x, exit.z - p.z) };
+    let target: { x: number; z: number } | null = null;
+    let targetSteps = steps;
+    for (let k = 0; k < 8 && steps > 0; k++) {
+      const next = NEIGHBOURS.find(([dx, dz]) => at(cell.gx + dx, cell.gz + dz) === steps - 1);
+      if (!next) break;
+      cell = { gx: cell.gx + next[0], gz: cell.gz + next[1] };
+      steps--;
+      const w = steps === 0 ? exit : gridToWorld(cell.gx, cell.gz);
+      // Always take the first step; after that only as far as the player can see along the route.
+      if (target && !hasLineOfSight(p, _vec3B.set(w.x, p.y, w.z), this.level.grid)) break;
+      target = { x: w.x, z: w.z };
+      targetSteps = steps;
+    }
+    if (!target) return { x: exit.x, z: exit.z, distance: Math.hypot(exit.x - p.x, exit.z - p.z) };
+    return { x: target.x, z: target.z, distance: targetSteps * CELL_SIZE + Math.hypot(target.x - p.x, target.z - p.z) };
+  }
+
+  /**
+   * Route for an entity (EntityWorld.findPath). Closed doors cost hunters DOOR_PATH_COST steps instead of being
+   * walls, so a long detour is no longer always preferred over battering a door down; wanderers still treat
+   * them as walls. Cells on another hunter's fresh route cost a little more, so a second hunter takes another
+   * loop. The cell path is then shortcut wherever the way is clear, so entities cut across halls instead of
+   * walking a staircase of cell centres.
+   */
+  private findEntityPath(
+    from: THREE.Vector3,
+    to: THREE.Vector3,
+    throughDoors: boolean,
+    hunterId?: number,
+  ): THREE.Vector3[] | null {
+    const start = worldToGrid(from.x, from.z);
+    const goal = worldToGrid(to.x, to.z);
+    if (start.gx === goal.gx && start.gz === goal.gz) return [new THREE.Vector3(to.x, 0, to.z)];
+    const cost = this.pathCost;
+    cost.fill(0);
+    for (const door of this.doors) {
+      if (!door.closed) continue;
+      cost[door.spec.gz * MAZE_SIZE + door.spec.gx] = throughDoors ? DOOR_PATH_COST : Infinity;
+    }
+    if (hunterId !== undefined) {
+      for (const [id, route] of this.hunterRoutes) {
+        if (id === hunterId || this.elapsedSeconds - route.time > 2) continue;
+        for (const c of route.cells) {
+          const cx = c % MAZE_SIZE;
+          const cz = (c - cx) / MAZE_SIZE;
+          // Near the goal routes may meet again: that is where the player is.
+          if (Math.max(Math.abs(cx - goal.gx), Math.abs(cz - goal.gz)) <= 2) continue;
+          cost[c] += SHARED_ROUTE_COST;
+        }
+      }
+    }
+    const cells = findWeightedPath(this.level.grid, start.gx, start.gz, goal.gx, goal.gz, cost);
+    if (!cells) return null;
+    if (hunterId !== undefined) this.hunterRoutes.set(hunterId, { cells, time: this.elapsedSeconds });
+    const points = cells.map((c) => {
+      const cx = c % MAZE_SIZE;
+      return gridToWorld(cx, (c - cx) / MAZE_SIZE);
+    });
+    points[points.length - 1].set(to.x, 0, to.z);
+    return this.shortcutPath(from, points, throughDoors);
+  }
+
+  /** Skip waypoints while the straight walk to a later one is clear (looking at most 8 ahead). */
+  private shortcutPath(from: THREE.Vector3, points: THREE.Vector3[], throughDoors: boolean): THREE.Vector3[] {
+    const out: THREE.Vector3[] = [];
+    let anchor = from;
+    let i = 0;
+    while (i < points.length) {
+      let j = Math.min(points.length - 1, i + 8);
+      while (j > i && !this.clearWalk(anchor, points[j], throughDoors)) j--;
+      out.push(points[j]);
+      anchor = points[j];
+      i = j + 1;
+    }
+    return out;
+  }
+
+  /** Is a body WALK_CLEARANCE wide free to walk straight from a to b (walls, pillars, doors, props)? */
+  private clearWalk(a: THREE.Vector3, b: THREE.Vector3, throughDoors: boolean): boolean {
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.01) return true;
+    const px = (-dz / len) * WALK_CLEARANCE;
+    const pz = (dx / len) * WALK_CLEARANCE;
+    const grid = throughDoors ? this.level.grid : this.navGrid;
+    const steps = Math.ceil(len / 0.3);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = a.x + dx * t;
+      const z = a.z + dz * t;
+      for (let o = -1; o <= 1; o++) {
+        const c = worldToGrid(x + px * o, z + pz * o);
+        if (isWallCell(grid, c.gx, c.gz)) return false;
+      }
+      for (const pillar of this.level.pillars) {
+        const reach = pillar.halfWidth + WALK_CLEARANCE;
+        if (Math.abs(x - pillar.x) < reach && Math.abs(z - pillar.z) < reach) return false;
+      }
+      for (const box of this.colliders) {
+        if (!box.active) continue;
+        if (Math.abs(x - box.x) < box.halfX + WALK_CLEARANCE && Math.abs(z - box.z) < box.halfZ + WALK_CLEARANCE) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /** Entities push each other apart, so a pack never merges into one body (game-ai skill: separation). */
+  private separateEntities(): void {
+    const list = this.entities;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (!a.alive || a.isDisguised) continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (!b.alive || b.isDisguised) continue;
+        const dx = b.position.x - a.position.x;
+        const dz = b.position.z - a.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= ENTITY_SPACING) continue;
+        const nx = d > 1e-4 ? dx / d : 1;
+        const nz = d > 1e-4 ? dz / d : 0;
+        const push = (ENTITY_SPACING - d) / 2;
+        a.position.x -= nx * push;
+        a.position.z -= nz * push;
+        b.position.x += nx * push;
+        b.position.z += nz * push;
+        resolveCircleWallCollision(a.position, 0.44, this.level.grid, this.level.pillars, this.colliders);
+        resolveCircleWallCollision(b.position, 0.44, this.level.grid, this.level.pillars, this.colliders);
+      }
+    }
+  }
+
   private buildDoors(): void {
     const panelMat = new THREE.MeshStandardMaterial({
       color: 0x9c8e66,
@@ -1283,6 +1593,7 @@ export class BackroomsEngine {
     if (this.phase !== 'playing') return;
     this.health = Math.max(0, this.health - damage);
     this.damageTaken += damage;
+    this.director.noteDamage(damage);
     this.damageFlash = 1.0;
     this.addTrauma(0.55);
     this.audio.playPlayerHurt();
@@ -1380,22 +1691,30 @@ export class BackroomsEngine {
       door.bashSoundTimer -= delta;
       if (door.bashSoundTimer <= 0) {
         door.bashSoundTimer = 0.55;
-        this.audio.playAt('door_bash', door.x, 1.2, door.z);
+        this.audio.playAt('door_bash', door.x, 1.2, door.z, this.doorOccluded(door));
       }
       if (door.bashTimer >= (heavy ? 1.4 : 2.6)) {
         door.burstOpen();
         if (Math.hypot(door.x - this.playerPos.x, door.z - this.playerPos.z) < 8) this.addTrauma(0.3);
         this.onDoorChanged(door);
-        this.audio.playAt('door_break', door.x, 1.2, door.z);
+        this.audio.playAt('door_break', door.x, 1.2, door.z, this.doorOccluded(door));
         this.emitNoise(_vec3A.set(door.x, 0, door.z), 12);
       }
     }
+  }
+
+  /** A wall stands between the listener and this door (its sounds are muffled and quieter). */
+  private doorOccluded(door: DoorInstance): boolean {
+    return !hasLineOfSight(this.camera.position, _vec3A.set(door.x, 1.2, door.z), this.level.grid);
   }
 
   private clearTransientInputs(): void {
     this.keys = {};
     this.isAiming = false;
     this.aimHeld = false;
+    this.sprintLatched = false;
+    // A held crouch whose key-up was lost (pause, focus change) must not leave the player stuck crouching.
+    if (!this.settings.crouchToggle) this.crouched = false;
     this.fireQueued = false;
     this.isDraggingLook = false;
     if (this.autoReloadTimer !== null) {
@@ -1470,6 +1789,7 @@ export class BackroomsEngine {
     this.weapon.reset();
 
     this.phase = 'playing';
+    this.audio.setPaused(false);
     this.weapon.root.visible = true;
     this.weapon.update(0.016, false, false, false, 0, 0);
     this.updateLights(performance.now() * 0.001);
@@ -1485,6 +1805,7 @@ export class BackroomsEngine {
     this.clearTransientInputs();
     this.blurFocusedControl();
     this.phase = 'playing';
+    this.audio.setPaused(false);
     this.requestLock();
     this.emitHud();
   }
@@ -1492,6 +1813,7 @@ export class BackroomsEngine {
   public pauseGame(): void {
     if (this.phase !== 'playing') return;
     this.phase = 'paused';
+    this.audio.setPaused(true);
     this.pausedAtMs = performance.now();
     this.clearTransientInputs();
     if (document.pointerLockElement === this.renderer.domElement) {
@@ -1502,6 +1824,7 @@ export class BackroomsEngine {
 
   public returnToTitle(): void {
     this.phase = 'title';
+    this.audio.setPaused(false);
     this.clearTransientInputs();
     this.weapon.reset();
     this.weapon.root.visible = false;
@@ -1642,31 +1965,79 @@ export class BackroomsEngine {
     }
 
     if (this.phase !== 'playing') return;
-    this.keys[e.code] = true;
-
-    if (e.code === 'KeyF' && !e.repeat) {
-      this.toggleFlashlightAction();
-    } else if (e.code === 'KeyR' && !e.repeat) {
-      this.startReload();
-    } else if (e.code === 'KeyM' && !e.repeat) {
-      this.toggleMute();
-    } else if (e.code === 'KeyC' && !e.repeat) {
-      // C, not Ctrl: Ctrl+W would close the browser tab mid-crouch-walk.
-      this.crouched = !this.crouched;
-      this.updateHiddenState();
-      this.emitHud();
-    } else if (e.code === 'KeyE' && !e.repeat) {
-      this.interactDoor();
-    } else if (e.code === 'Space') {
-      e.preventDefault();
-      // Semi-automatic: a held key's auto-repeat must not turn the pistol full-auto.
-      if (!e.repeat) this.fireWeapon();
+    const code = normalizeCode(e.code);
+    this.keys[code] = true;
+    const action = actionForCode(this.bindings, code);
+    // Space would scroll the page; Ctrl+W-style shortcuts are why crouch defaults to C, not Ctrl.
+    if (action === 'fire' || action === 'sprint') e.preventDefault();
+    // Auto-repeat only keeps the key held: the pistol stays semi-automatic, toggles do not flicker.
+    if (e.repeat || !action) return;
+    switch (action) {
+      case 'flashlight':
+        this.toggleFlashlightAction();
+        break;
+      case 'reload':
+        this.startReload();
+        break;
+      case 'mute':
+        this.toggleMute();
+        break;
+      case 'crouch':
+        this.setCrouched(this.settings.crouchToggle ? !this.crouched : true);
+        break;
+      case 'interact':
+        this.interactDoor();
+        break;
+      case 'fire':
+        this.fireWeapon();
+        break;
+      case 'aim':
+        this.pressAim();
+        break;
+      case 'sprint':
+        if (this.settings.sprintToggle) this.sprintLatched = !this.sprintLatched;
+        break;
+      default:
+        break;
     }
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    this.keys[e.code] = false;
+    const code = normalizeCode(e.code);
+    this.keys[code] = false;
+    if (this.phase !== 'playing') return;
+    const action = actionForCode(this.bindings, code);
+    if (action === 'crouch' && !this.settings.crouchToggle) this.setCrouched(false);
+    if (action === 'aim' && !this.settings.aimToggle) this.releaseAim();
   };
+
+  /** Is the key bound to this action held down right now? */
+  private held(action: GameAction): boolean {
+    const code = this.bindings[action];
+    return code !== '' && Boolean(this.keys[code]);
+  }
+
+  private setCrouched(on: boolean): void {
+    if (this.crouched === on) return;
+    this.crouched = on;
+    this.updateHiddenState();
+    this.emitHud();
+  }
+
+  /** Aim pressed (right mouse or the aim key): hold to aim, or press to switch with Aim toggle on. */
+  private pressAim(): void {
+    if (this.settings.aimToggle && this.aimHeld) {
+      this.releaseAim();
+      return;
+    }
+    this.aimHeld = true;
+    if (!this.isReloading) this.isAiming = true;
+  }
+
+  private releaseAim(): void {
+    this.aimHeld = false;
+    this.isAiming = false;
+  }
 
   private onMouseDown = (e: MouseEvent): void => {
     if (this.phase !== 'playing') return;
@@ -1685,17 +2056,15 @@ export class BackroomsEngine {
       }
       this.fireWeapon();
     } else if (e.button === 2) {
-      this.aimHeld = true;
-      if (!this.isReloading) this.isAiming = true;
+      this.pressAim();
     }
   };
 
   private onMouseUp = (e: MouseEvent): void => {
     if (e.button === 0) {
       this.isDraggingLook = false;
-    } else if (e.button === 2) {
-      this.aimHeld = false;
-      this.isAiming = false;
+    } else if (e.button === 2 && !this.settings.aimToggle) {
+      this.releaseAim();
     }
   };
 
@@ -2093,10 +2462,13 @@ export class BackroomsEngine {
     }
 
     // Player movement
-    const forwardInput = (this.keys['KeyW'] ? 1 : 0) - (this.keys['KeyS'] ? 1 : 0);
-    const strafeInput = (this.keys['KeyD'] ? 1 : 0) - (this.keys['KeyA'] ? 1 : 0);
+    const forwardInput = (this.held('forward') ? 1 : 0) - (this.held('back') ? 1 : 0);
+    const strafeInput = (this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0);
     const isMoving = forwardInput !== 0 || strafeInput !== 0;
-    const wantsSprint = Boolean(this.keys['ShiftLeft'] || this.keys['ShiftRight']) && isMoving && !this.isAiming;
+    // Toggle-sprint ends when the player stops moving, like most shooters.
+    if (!isMoving) this.sprintLatched = false;
+    const sprintInput = this.settings.sprintToggle ? this.sprintLatched : this.held('sprint');
+    const wantsSprint = sprintInput && isMoving && !this.isAiming;
     if (wantsSprint && this.crouched) this.crouched = false;
     // Hysteresis: once stamina is spent the player is winded and cannot sprint until it recovers to
     // WINDED_RECOVER_HOLDING (or WINDED_RECOVER_RELEASED after letting go of Shift). Without it, holding
@@ -2227,6 +2599,7 @@ export class BackroomsEngine {
 
     let nearestDist = Infinity;
     let nearestLabel: string | null = null;
+    let hunting = 0;
     // Iterate over a snapshot (a reused array): the director may add entities during this frame.
     const snapshot = this.entityScratch;
     snapshot.length = 0;
@@ -2239,6 +2612,7 @@ export class BackroomsEngine {
 
       // A disguised Skin-Stealer must not trip the heartbeat or the HUD readout.
       if (!ent.isThreat) continue;
+      if (ent.state === 'chase') hunting++;
       const d = Math.hypot(ent.position.x - this.playerPos.x, ent.position.z - this.playerPos.z);
       if (d < nearestDist) {
         nearestDist = d;
@@ -2248,8 +2622,9 @@ export class BackroomsEngine {
     this.lastNearestEntityDist = nearestDist;
     this.lastNearestEntityLabel = nearestLabel;
 
+    this.separateEntities();
     this.updateDoors(delta);
-    this.director.update(delta);
+    this.director.update(delta, { hunting, nearestThreat: nearestDist });
 
     // Flashlight battery & eerie proximity flicker. No passive recharge: batteries are a resource.
     if (this.flashlightOn) {
@@ -2313,7 +2688,8 @@ export class BackroomsEngine {
           };
           this.audio.playTapeLog();
           // Every tape makes Level 0 more dangerous (lights fail, another entity wakes, the hum grows).
-          const flavor = this.director.tapeCollected(this.tapesCollected);
+          // The new entity arrives after the log has played, not while the player is reading it.
+          const flavor = this.director.tapeCollected(this.tapesCollected, this.tapeLog?.duration ?? 0);
           if (this.tapesCollected >= this.tapesTotal) {
             this.exitUnlocked = true;
             this.exitBeaconMat.color.setHex(0x3dff88);
@@ -2571,6 +2947,12 @@ export class BackroomsEngine {
   /** Apply player settings (Settings panel / localStorage). Safe to call at any time. */
   public applySettings(settings: GameSettings): void {
     const qualityChanged = !this.settingsApplied || settings.quality !== this.settings.quality;
+    if (JSON.stringify(settings.bindings) !== JSON.stringify(this.bindings)) {
+      this.bindings = { ...settings.bindings };
+      // One object per bindings value: the HUD diff compares it by reference.
+      this.keyHints = keyHintsFor(this.bindings);
+      this.guide.keyHints = this.keyHints;
+    }
     this.settings = { ...settings };
     this.settingsApplied = true;
     this.audio.setVolume(settings.volume);
@@ -2638,10 +3020,11 @@ export class BackroomsEngine {
     nearestEntityDist = this.lastNearestEntityDist,
     nearestEntityLabel: string | null = this.lastNearestEntityLabel,
   ): HudState {
-    const exitDx = this.level.exitPos.x - this.playerPos.x;
-    const exitDz = this.level.exitPos.z - this.playerPos.z;
-    const exitDistanceMeters = Math.round(Math.hypot(exitDx, exitDz) * 10) / 10;
-    const angleToExit = Math.atan2(-exitDx, -exitDz);
+    const exitStraight = Math.hypot(this.level.exitPos.x - this.playerPos.x, this.level.exitPos.z - this.playerPos.z);
+    // The arrow follows the walking route (it used to point straight through the walls at the door).
+    const route = this.exitRoute();
+    const exitDistanceMeters = Math.round(route.distance * 10) / 10;
+    const angleToExit = Math.atan2(-(route.x - this.playerPos.x), -(route.z - this.playerPos.z));
     // Clockwise-positive relative bearing (0 ahead, +PI/2 right, -PI/2 left) to match CSS rotate().
     const exitBearingRad = Math.atan2(
       Math.sin(this.yaw - angleToExit),
@@ -2650,7 +3033,7 @@ export class BackroomsEngine {
 
     let interactPrompt: string | null = null;
     if (this.phase === 'playing') {
-      if (exitDistanceMeters < 3.4) {
+      if (exitStraight < 3.4) {
         const remaining = this.tapesTotal - this.tapesCollected;
         interactPrompt = this.exitUnlocked
           ? 'SECTOR EXIT UNLOCKED — STEP INTO THRESHOLD'
@@ -2658,12 +3041,13 @@ export class BackroomsEngine {
       } else {
         const door = this.findInteractableDoor();
         if (door) {
-          interactPrompt = door.broken ? 'DOOR TORN OFF ITS HINGES' : door.closed ? '[E] OPEN DOOR' : '[E] CLOSE DOOR';
+          const key = this.keyHints.interact;
+          interactPrompt = door.broken ? 'DOOR TORN OFF ITS HINGES' : door.closed ? `[${key}] OPEN DOOR` : `[${key}] CLOSE DOOR`;
         } else if (
           !this.crouched &&
           this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 0.95)
         ) {
-          interactPrompt = '[C] CROUCH UNDER THE DESK TO HIDE';
+          interactPrompt = `[${this.keyHints.crouch}] CROUCH UNDER THE DESK TO HIDE`;
         }
         const savedSupply = this.pickups.find(
           (pk) =>
@@ -2682,6 +3066,7 @@ export class BackroomsEngine {
     }
 
     return {
+      keyHints: this.keyHints,
       phase: this.phase,
       difficulty: this.difficulty,
       health: Math.round(this.health),
@@ -2759,6 +3144,7 @@ export class BackroomsEngine {
         },
         yaw: this.yaw,
         pitch: this.pitch,
+        director: { intensity: this.director.intensity, pace: this.director.pace },
         entities: this.entities.map((e) => ({
           id: e.id,
           label: e.label,

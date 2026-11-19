@@ -43,7 +43,12 @@ export interface EntityVoice {
 export interface EntityWorld {
   lineOfSight(from: THREE.Vector3, to: THREE.Vector3): boolean;
   /** Next waypoint toward `to`; routes around closed doors when another way exists. */
-  nextStepToward(from: THREE.Vector3, to: THREE.Vector3, allowClosedDoors?: boolean): THREE.Vector3 | null;
+  /**
+   * Smoothed waypoints from `from` to `to` (world positions), or null when it cannot be reached. Hunters
+   * (`throughDoors`) may route through closed doors, which cost about the time it takes to batter one down;
+   * `hunterId` spreads several hunters over different routes so they close in from more than one side.
+   */
+  findPath(from: THREE.Vector3, to: THREE.Vector3, throughDoors: boolean, hunterId?: number): THREE.Vector3[] | null;
   resolveCollision(pos: THREE.Vector3, radius: number): void;
   randomPointNear(center: THREE.Vector3, radiusCells: number): THREE.Vector3 | null;
   randomPatrolPoint(from: THREE.Vector3): THREE.Vector3 | null;
@@ -198,6 +203,9 @@ export class BackroomsEntity {
   private lastKnown = new THREE.Vector3();
   private hasLastKnown = false;
   private cachedNextWaypoint = new THREE.Vector3();
+  /** The whole route to the current target, followed waypoint by waypoint between replans. */
+  private path: THREE.Vector3[] = [];
+  private pathIndex = 0;
   private pathTimer = 0;
   private animPhase = Math.random() * 10;
   private attackCooldown = 0;
@@ -804,6 +812,8 @@ export class BackroomsEntity {
     this.flinch = 0;
     if (this.disguiseGroup) this.disguiseGroup.rotation.z = 0;
     this.cachedNextWaypoint.copy(this.position);
+    this.path = [];
+    this.pathIndex = 0;
     this.patrolTarget.copy(this.position);
     this.lastProgressPos.copy(this.position);
     if (this.smilerFaceMesh) this.smilerFaceMesh.visible = true;
@@ -899,6 +909,32 @@ export class BackroomsEntity {
     // Howlers lunge at nearby sounds; everything else goes to look.
     if (this.archetype === 'howler' && d < 10) this.enterChase();
     else this.state = 'investigate';
+  }
+
+  /**
+   * Director relief: a hunter that has lost sight of the player gives up and wanders off. One that can still
+   * see the player keeps coming (stopping mid-chase would look broken).
+   */
+  public calmDown(): void {
+    if (!this.isEngaged || this.hasLineOfSightToPlayer) return;
+    this.state = 'patrol';
+    this.awareness = 0;
+    this.hasLastKnown = false;
+    this.path = [];
+    this.pathTimer = 0;
+    // Reaching the current patrol target makes the next update pick a fresh one.
+    this.patrolTarget.copy(this.position);
+  }
+
+  /** Director pacing: a wandering entity goes to look at a spot (an encounter after a long quiet spell). */
+  public investigatePoint(pos: THREE.Vector3): boolean {
+    if (!this.alive || this.state !== 'patrol') return false;
+    this.lastKnown.copy(pos);
+    this.hasLastKnown = true;
+    this.lostTimer = 0;
+    this.pathTimer = 0;
+    this.state = 'investigate';
+    return true;
   }
 
   /** Director-level omniscience (e.g. final tape): every active entity (including deaf Smilers) knows where you are. */
@@ -1113,18 +1149,30 @@ export class BackroomsEntity {
       if (this.pathTimer <= 0) {
         this.pathTimer = this.state === 'chase' ? 0.35 : 0.8;
         if (sees && this.state === 'chase') {
+          this.path = [];
           this.cachedNextWaypoint.copy(player.pos);
         } else {
-          const stepPos = world.nextStepToward(this.position, target, this.isEngaged);
-          if (stepPos) {
-            this.cachedNextWaypoint.copy(stepPos);
+          const engaged = this.isEngaged;
+          const path = world.findPath(this.position, target, engaged, engaged ? this.id : undefined);
+          if (path && path.length > 0) {
+            this.path = path;
+            this.pathIndex = 0;
           } else {
             // Closed door seals off this non-engaged patrol/search target; pick another reachable spot.
             if (this.state === 'search') this.pickSearchPoint(world);
             else if (this.state === 'patrol') this.pickPatrolPoint(world);
+            this.path = [];
             this.cachedNextWaypoint.copy(this.position);
           }
         }
+      }
+      // Follow the cached route: move on to the next waypoint as soon as this one is reached, without waiting
+      // for the next replan (that wait made entities stop at every cell centre).
+      if (this.path.length > 0) {
+        while (this.pathIndex < this.path.length - 1 && this.distanceTo(this.path[this.pathIndex]) < 0.35) {
+          this.pathIndex++;
+        }
+        this.cachedNextWaypoint.copy(this.path[this.pathIndex]);
       }
       const wx = this.cachedNextWaypoint.x - this.position.x;
       const wz = this.cachedNextWaypoint.z - this.position.z;

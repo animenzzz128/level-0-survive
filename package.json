@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/game/maze.test.ts && tsx src/game/combat.test.ts && tsx src/game/storage.test.ts && tsx src/game/entities.test.ts && tsx src/game/perf.test.ts"
+    "test": "tsx src/game/maze.test.ts && tsx src/game/combat.test.ts && tsx src/game/storage.test.ts && tsx src/game/entities.test.ts && tsx src/game/perf.test.ts && tsx src/game/director.test.ts && tsx src/game/controls.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

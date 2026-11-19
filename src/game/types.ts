@@ -1,3 +1,5 @@
+import type { KeyHints } from './controls';
+
 export type GamePhase = 'title' | 'playing' | 'paused' | 'victory' | 'gameover';
 
 export type DifficultyMode = 'standard' | 'nightmare';
@@ -39,6 +41,8 @@ export interface HudTapeLog {
 }
 
 export interface HudState {
+  /** Key names for the controls strip and prompts (the player's own bindings). */
+  keyHints: KeyHints;
   phase: GamePhase;
   difficulty: DifficultyMode;
   health: number;
