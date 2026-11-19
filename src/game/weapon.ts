@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStaticMeshes } from './meshMerge';
 
 interface ShellCasing {
   mesh: THREE.Mesh;
@@ -12,7 +13,6 @@ export class TacticalWeaponViewmodel {
   private readonly gunPivot: THREE.Group;
   private readonly slideGroup: THREE.Group;
   private readonly flashGroup: THREE.Group;
-  private readonly muzzleLight: THREE.PointLight;
   private readonly shellsGroup: THREE.Group;
   private readonly shells: ShellCasing[] = [];
   private readonly casingGeo: THREE.CylinderGeometry;
@@ -21,6 +21,8 @@ export class TacticalWeaponViewmodel {
   private recoilZ = 0;
   /** Off with Reduce flashing: at full fire rate the muzzle light flashed ~4.8 times per second. */
   private muzzleLightEnabled = true;
+  /** Muzzle flash light, lent to the engine's light pool while the flash lasts. */
+  private muzzleIntensity = 0;
   private recoilPitch = 0;
   private slideBack = 0;
   private flashTimer = 0;
@@ -191,9 +193,19 @@ export class TacticalWeaponViewmodel {
     this.flashGroup.add(planeA, planeB);
     this.gunPivot.add(this.flashGroup);
 
-    this.muzzleLight = new THREE.PointLight(0xffb84d, 0, 8, 2);
-    this.muzzleLight.position.set(0, 0.03, -0.34);
-    this.gunPivot.add(this.muzzleLight);
+    // 32 parts were 32 draw calls on screen all the time: join the static ones per material (the slide and the
+    // flash keep their own groups, so they still move).
+    mergeStaticMeshes(this.root);
+  }
+
+  public get muzzleLightIntensity(): number {
+    return this.muzzleIntensity;
+  }
+
+  /** World position of the muzzle light (just past the suppressor). */
+  public getMuzzleWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    this.gunPivot.updateWorldMatrix(true, false);
+    return target.set(0, 0.03, -0.34).applyMatrix4(this.gunPivot.matrixWorld);
   }
 
   public setMuzzleLightEnabled(enabled: boolean): void {
@@ -209,7 +221,7 @@ export class TacticalWeaponViewmodel {
     this.flashGroup.rotation.z = Math.random() * Math.PI * 2;
     const s = 0.72 + Math.random() * 0.35;
     this.flashGroup.scale.set(s, s, 1);
-    this.muzzleLight.intensity = this.muzzleLightEnabled ? 6.5 : 0;
+    this.muzzleIntensity = this.muzzleLightEnabled ? 6.5 : 0;
 
     const mesh = new THREE.Mesh(this.casingGeo, this.casingMat);
     const worldStart = new THREE.Vector3(0.18, -0.14, -0.42).applyMatrix4(camera.matrixWorld);
@@ -249,7 +261,7 @@ export class TacticalWeaponViewmodel {
     this.slideGroup.position.z = 0;
     this.flashTimer = 0;
     this.flashGroup.visible = false;
-    this.muzzleLight.intensity = 0;
+    this.muzzleIntensity = 0;
     this.reloadTimer = 0;
     this.bobPhase = 0;
     this.snapAim(false);
@@ -273,7 +285,7 @@ export class TacticalWeaponViewmodel {
       this.flashTimer -= delta;
       if (this.flashTimer <= 0) {
         this.flashGroup.visible = false;
-        this.muzzleLight.intensity = 0;
+        this.muzzleIntensity = 0;
       }
     }
 

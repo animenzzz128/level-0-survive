@@ -19,6 +19,9 @@ import {
   resolveCircleWallCollision,
   worldToGrid,
 } from './maze';
+import { hudChanged } from './hudDiff';
+import { mergeStaticMeshes } from './meshMerge';
+import { GpuTimer, SampleRing } from './perf';
 import { BackroomsMaterialSet, createBackroomsMaterialSet } from './textures';
 import {
   DifficultyMode,
@@ -64,9 +67,6 @@ interface PickupInstance {
   z: number;
   baseY: number;
   collected: boolean;
-  /** Tape beacon light. Dimmed to 0 on pickup, never hidden: hiding a light changes the light count,
-   *  which recompiles every lit shader (a hitch on each tape). */
-  light?: THREE.PointLight;
 }
 
 interface ImpactParticle {
@@ -116,8 +116,57 @@ declare global {
       toggleFlashlight: () => void;
       setAim: (aim: boolean) => void;
       triggerReload: () => void;
+      /** Last frame's renderer counters and rolling frame/CPU/GPU timings (ms, mean and p95). */
+      perf: () => PerfReport;
+      /** Run `frames` simulated frames back to back, waiting for the GPU after each, and time them. */
+      bench: (frames?: number) => BenchReport;
     };
   }
+}
+
+export interface PerfReport {
+  drawCalls: number;
+  triangles: number;
+  programs: number;
+  geometries: number;
+  textures: number;
+  /** Point lights in the shader light count (visible, even at intensity 0). */
+  pointLights: number;
+  meshes: { level: number; entities: number; pickups: number; weapon: number; fx: number };
+  frameMs: { mean: number; p95: number };
+  cpuMs: { mean: number; p95: number };
+  gpuMs: { mean: number; p95: number } | null;
+  samples: number;
+}
+
+export interface BenchReport {
+  frames: number;
+  drawCalls: number;
+  triangles: number;
+  /** Simulation + render submission per frame (CPU side only). */
+  cpuMs: { mean: number; p95: number };
+  /** Simulation + render + GPU completion per frame. */
+  ms: { mean: number; p95: number };
+}
+
+/** FogExp2 density 0.088 leaves 0.04% of a surface visible at 32 m: anything farther was drawn for nothing. */
+const FOG_DENSITY = 0.088;
+const FAR_PLANE = 32;
+
+// Light pool sources (see updateLights): fixture index >= 0, or one of these.
+const LIGHT_MUZZLE = -1;
+const LIGHT_EXIT = -2;
+const LIGHT_TAPE_BASE = -10; // tape at pickup index i is LIGHT_TAPE_BASE - i
+/** Tapes and the exit count as this much closer (squared) so they keep a light slot near the player. */
+const FEATURE_LIGHT_WEIGHT = 0.35;
+
+const GLOW_HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+const GLOW_ON = new THREE.Color(1, 1, 1);
+const GLOW_OFF = new THREE.Color(0, 0, 0);
+
+/** Smooth pseudo-random shake signal: summed sines, never per-frame noise. */
+function wobble(t: number, f1: number, f2: number, phase: number): number {
+  return (Math.sin(t * f1 + phase) + 0.5 * Math.sin(t * f2 + phase * 1.7)) / 1.5;
 }
 
 const _vec3A = new THREE.Vector3();
@@ -140,6 +189,12 @@ export class BackroomsEngine {
   private frameId = 0;
   private disposed = false;
   private lastTime = performance.now();
+  // Frame measurement (debug API perf()).
+  private readonly frameTimes = new SampleRing();
+  private readonly cpuTimes = new SampleRing();
+  private gpuTimer: GpuTimer | null = null;
+  private lastDrawCalls = 0;
+  private lastTriangles = 0;
 
   private level!: BackroomsLevelData;
   private levelGroup = new THREE.Group();
@@ -170,7 +225,22 @@ export class BackroomsEngine {
   private dustPoints!: THREE.Points;
 
   private exitBeaconMat!: THREE.MeshBasicMaterial;
-  private exitLight!: THREE.PointLight;
+  // The exit beacon's light is a pooled light slot; these describe it.
+  private exitLightPos = new THREE.Vector3();
+  private exitLightColor = 0xff3b30;
+  private exitLightIntensity = 1.8;
+
+  // Light pool selection, preallocated (no per-frame arrays or sorting).
+  private readonly lightKey = new Float64Array(8);
+  private readonly lightSource = new Int32Array(8);
+  private lightCandidates = 0;
+  private fixtureIntensity = new Float32Array(0);
+  private readonly entityScratch: BackroomsEntity[] = [];
+
+  // Render on demand outside live phases; HUD pushes only when something visible changed.
+  private renderRequested = true;
+  private renderedPhase: GamePhase | null = null;
+  private lastHud: HudState | null = null;
 
   // Player state
   private phase: GamePhase = 'title';
@@ -242,7 +312,9 @@ export class BackroomsEngine {
   private walkableCells: Array<{ gx: number; gz: number }> = [];
   private hideSpots: Array<{ x: number; z: number }> = [];
   private fixtureModes: Array<'steady' | 'flicker' | 'dead'> = [];
-  private fixtureGlows: Array<THREE.Mesh | null> = [];
+  private glowInstanced: THREE.InstancedMesh | null = null;
+  private glowOn = new Uint8Array(0);
+  private glowColorDirty = false;
   private director!: ThreatDirector;
   private entityIdCounter = 0;
 
@@ -362,6 +434,7 @@ export class BackroomsEngine {
       return;
     }
 
+    this.gpuTimer = GpuTimer.create(this.renderer.getContext());
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
@@ -384,10 +457,10 @@ export class BackroomsEngine {
     this.scene = new THREE.Scene();
     const fogColor = new THREE.Color(0x171409);
     this.scene.background = fogColor;
-    this.scene.fog = new THREE.FogExp2(0x171409, 0.088);
+    this.scene.fog = new THREE.FogExp2(0x171409, FOG_DENSITY);
 
     const aspect = (this.container.clientWidth || window.innerWidth) / (this.container.clientHeight || window.innerHeight);
-    this.camera = new THREE.PerspectiveCamera(72, aspect, 0.04, 55);
+    this.camera = new THREE.PerspectiveCamera(72, aspect, 0.04, FAR_PLANE);
     this.scene.add(this.camera);
 
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -470,6 +543,7 @@ export class BackroomsEngine {
 
   private handleContextRestored = (): void => {
     this.lastTime = performance.now();
+    this.renderRequested = true;
     this.scheduleNextTick();
   };
 
@@ -534,7 +608,7 @@ export class BackroomsEngine {
     this.doors = [];
     this.colliders = [];
     this.hideSpots = [];
-    this.fixtureGlows = [];
+    this.glowInstanced = null;
   }
 
   private buildLevel(seed: number, difficulty: DifficultyMode): void {
@@ -667,6 +741,11 @@ export class BackroomsEngine {
       });
       const glowGeo = new THREE.PlaneGeometry(1.75, 2.35);
       glowGeo.rotateX(Math.PI / 2);
+      // One instanced draw for every ceiling glow (it was one mesh, and one draw call, per fixture).
+      // Flicker switches an instance's colour to black (additive: adds nothing); dead fixtures collapse to a point.
+      const glowInst = new THREE.InstancedMesh(glowGeo, glowMat, fixtures.length);
+      glowInst.frustumCulled = false;
+      this.glowOn = new Uint8Array(fixtures.length);
 
       fixtures.forEach((f, idx) => {
         dummy.position.set(f.x, WALL_HEIGHT - 0.02, f.z);
@@ -682,22 +761,26 @@ export class BackroomsEngine {
         this.fixtureColorTemp.setHex(f.flickerMode === 'dead' ? 0x1d1a10 : 0xffffff);
         panelInst.setColorAt(idx, this.fixtureColorTemp);
 
-        if (f.flickerMode !== 'dead') {
-          const glow = new THREE.Mesh(glowGeo, glowMat);
-          glow.position.set(f.x, WALL_HEIGHT - 0.075, f.z);
-          this.levelGroup.add(glow);
-          this.fixtureGlows[idx] = glow;
+        if (f.flickerMode === 'dead') {
+          glowInst.setMatrixAt(idx, GLOW_HIDDEN);
         } else {
-          this.fixtureGlows[idx] = null;
+          dummy.position.set(f.x, WALL_HEIGHT - 0.075, f.z);
+          dummy.updateMatrix();
+          glowInst.setMatrixAt(idx, dummy.matrix);
         }
+        glowInst.setColorAt(idx, GLOW_ON);
+        this.glowOn[idx] = 1;
       });
       frameInst.instanceMatrix.needsUpdate = true;
       panelInst.instanceMatrix.needsUpdate = true;
+      glowInst.instanceMatrix.needsUpdate = true;
       if (panelInst.instanceColor) panelInst.instanceColor.needsUpdate = true;
+      if (glowInst.instanceColor) glowInst.instanceColor.needsUpdate = true;
       frameInst.computeBoundingSphere();
       panelInst.computeBoundingSphere();
-      this.levelGroup.add(frameInst, panelInst);
+      this.levelGroup.add(frameInst, panelInst, glowInst);
       this.lightPanelInstanced = panelInst;
+      this.glowInstanced = glowInst;
     }
 
     // 6. Scratched Wall Graffiti & Warning Decals
@@ -833,8 +916,11 @@ export class BackroomsEngine {
     keypadLed.position.set(-1.12, 1.43, -0.105);
     keypadLed.rotation.y = Math.PI;
 
-    this.exitLight = new THREE.PointLight(0xff3b30, 1.8, 9, 1.8);
-    this.exitLight.position.set(0, 2.5, -0.6);
+    // The beacon's light is a slot in the shared light pool (updateLights), placed here in world space.
+    exitGroup.updateMatrix();
+    this.exitLightPos.set(0, 2.5, -0.6).applyMatrix4(exitGroup.matrix);
+    this.exitLightColor = 0xff3b30;
+    this.exitLightIntensity = 1.8;
 
     exitGroup.add(
       frameL,
@@ -847,8 +933,8 @@ export class BackroomsEngine {
       ribR,
       keypad,
       keypadLed,
-      this.exitLight,
     );
+    mergeStaticMeshes(exitGroup);
     this.levelGroup.add(exitGroup);
   }
 
@@ -905,7 +991,6 @@ export class BackroomsEngine {
       grp.position.set(p.x, 0, p.z);
 
       let rotTarget: THREE.Object3D = grp;
-      let tapeLight: THREE.PointLight | undefined;
       let baseY = 0;
 
       if (p.kind === 'tape') {
@@ -924,11 +1009,6 @@ export class BackroomsEngine {
         const reelR = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.044, 0.06, 12), brassMat);
         reelR.position.set(0.085, 0, -0.025);
 
-        const beacon = new THREE.PointLight(0xffa726, 1.35, 5.2, 1.8);
-        // On the pickup group, not the cassette: the cassette is hidden on pickup, the light only dims.
-        beacon.position.y = 0.92 + 0.28;
-        grp.add(beacon);
-        tapeLight = beacon;
         vhs.add(shell, label, reelL, reelR);
         grp.add(vhs);
         rotTarget = vhs;
@@ -998,7 +1078,6 @@ export class BackroomsEngine {
         kind: p.kind,
         group: grp,
         rotTarget,
-        light: tapeLight,
         x: p.x,
         z: p.z,
         baseY,
@@ -1186,8 +1265,11 @@ export class BackroomsEngine {
         this.fixtureModes[idx] = 'flicker';
       } else {
         this.fixtureModes[idx] = 'dead';
-        const glow = this.fixtureGlows[idx];
-        if (glow) glow.visible = false;
+        if (this.glowInstanced) {
+          this.glowInstanced.setMatrixAt(idx, GLOW_HIDDEN);
+          this.glowInstanced.instanceMatrix.needsUpdate = true;
+          this.glowOn[idx] = 0;
+        }
         if (this.lightPanelInstanced) {
           this.fixtureColorTemp.setHex(0x1d1a10);
           this.lightPanelInstanced.setColorAt(idx, this.fixtureColorTemp);
@@ -1390,7 +1472,7 @@ export class BackroomsEngine {
     this.phase = 'playing';
     this.weapon.root.visible = true;
     this.weapon.update(0.016, false, false, false, 0, 0);
-    this.updateCeilingLights(performance.now() * 0.001);
+    this.updateLights(performance.now() * 0.001);
     this.renderer.render(this.scene, this.camera);
     this.pushNotification('Locate 4 VHS Data Tapes to unlock the Sector Exit.', 'info');
     this.requestLock();
@@ -1518,6 +1600,8 @@ export class BackroomsEngine {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    // Resizing clears the canvas, so a paused frame has to be drawn again.
+    this.renderRequested = true;
   };
 
   private onPointerLockChange = (): void => {
@@ -1848,12 +1932,91 @@ export class BackroomsEngine {
     const delta = Math.min(rawDelta, 0.05);
 
     this.updateScene(delta, now * 0.001);
-    this.renderer.render(this.scene, this.camera);
-    if (this.pendingDisposal.length > 0) {
-      for (const resource of this.pendingDisposal) resource.dispose();
-      this.pendingDisposal = [];
+    // Paused and results screens show a still frame: draw it once, not 60 times a second.
+    const live = this.phase === 'playing' || this.phase === 'title';
+    if (live || this.renderRequested || this.phase !== this.renderedPhase) {
+      this.renderFrame();
+      this.renderRequested = false;
+      this.renderedPhase = this.phase;
+      if (this.pendingDisposal.length > 0) {
+        for (const resource of this.pendingDisposal) resource.dispose();
+        this.pendingDisposal = [];
+      }
     }
+    this.cpuTimes.push(performance.now() - now);
+    this.frameTimes.push(rawDelta * 1000);
     this.scheduleNextTick();
+  }
+
+  /** Render the scene and record its counters (and GPU time where the browser exposes timer queries). */
+  private renderFrame(): void {
+    this.gpuTimer?.poll();
+    this.gpuTimer?.begin();
+    this.renderer.render(this.scene, this.camera);
+    this.gpuTimer?.end();
+    this.lastDrawCalls = this.renderer.info.render.calls;
+    this.lastTriangles = this.renderer.info.render.triangles;
+  }
+
+  private countVisibleMeshes(root: THREE.Object3D): number {
+    let n = 0;
+    root.traverseVisible((obj) => {
+      if ((obj as THREE.Mesh).isMesh) n++;
+    });
+    return n;
+  }
+
+  private perfReport(): PerfReport {
+    const info = this.renderer.info;
+    let pointLights = 0;
+    this.scene.traverseVisible((obj) => {
+      if ((obj as THREE.PointLight).isPointLight) pointLights++;
+    });
+    return {
+      drawCalls: this.lastDrawCalls,
+      triangles: this.lastTriangles,
+      programs: info.programs?.length ?? 0,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      pointLights,
+      meshes: {
+        level: this.countVisibleMeshes(this.levelGroup),
+        entities: this.countVisibleMeshes(this.entityGroup),
+        pickups: this.countVisibleMeshes(this.pickupGroup),
+        weapon: this.countVisibleMeshes(this.weapon.root),
+        fx: this.countVisibleMeshes(this.fxGroup),
+      },
+      frameMs: this.frameTimes.summary(),
+      cpuMs: this.cpuTimes.summary(),
+      gpuMs: this.gpuTimer && this.gpuTimer.samples.size > 0 ? this.gpuTimer.samples.summary() : null,
+      samples: this.frameTimes.size,
+    };
+  }
+
+  private runBench(frames: number): BenchReport {
+    const gl = this.renderer.getContext();
+    const pixel = new Uint8Array(4);
+    const times = new SampleRing(Math.max(1, frames));
+    const cpu = new SampleRing(Math.max(1, frames));
+    const dt = 1 / 60;
+    let t = performance.now() * 0.001;
+    for (let i = 0; i < frames; i++) {
+      const start = performance.now();
+      t += dt;
+      this.updateScene(dt, t);
+      this.renderer.render(this.scene, this.camera);
+      cpu.push(performance.now() - start);
+      // Reading one pixel waits for the GPU, so each sample covers simulation, submission and drawing.
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      times.push(performance.now() - start);
+    }
+    return {
+      frames,
+      drawCalls: this.renderer.info.render.calls,
+      triangles: this.renderer.info.render.triangles,
+      cpuMs: cpu.summary(),
+      ms: times.summary(),
+    };
   }
 
   private updateScene(delta: number, timeSec: number): void {
@@ -1877,7 +2040,7 @@ export class BackroomsEngine {
       this.camera.quaternion.setFromEuler(_euler);
       this.flashlight.intensity = 4.6;
       this.flashlightCone.visible = false;
-      this.updateCeilingLights(timeSec);
+      this.updateLights(timeSec);
       this.audio.updateAmbient(delta, 99, false);
       return;
     }
@@ -2029,11 +2192,9 @@ export class BackroomsEngine {
     // Shake as smooth rotation (summed sines, not per-frame random jitter), scaled by the comfort setting.
     this.shakeTime += delta;
     const shake = this.trauma * this.trauma * this.settings.shakeStrength;
-    const wobble = (f1: number, f2: number, phase: number) =>
-      (Math.sin(this.shakeTime * f1 + phase) + 0.5 * Math.sin(this.shakeTime * f2 + phase * 1.7)) / 1.5;
-    const shakePitch = 0.03 * shake * wobble(13.1, 29.3, 0.4);
-    const shakeYaw = 0.03 * shake * wobble(11.7, 23.9, 2.1);
-    const shakeRoll = this.settings.reduceMotion ? 0 : 0.04 * shake * wobble(9.3, 19.7, 4.2);
+    const shakePitch = 0.03 * shake * wobble(this.shakeTime, 13.1, 29.3, 0.4);
+    const shakeYaw = 0.03 * shake * wobble(this.shakeTime, 11.7, 23.9, 2.1);
+    const shakeRoll = this.settings.reduceMotion ? 0 : 0.04 * shake * wobble(this.shakeTime, 9.3, 19.7, 4.2);
     this.camera.position.set(this.playerPos.x, this.eyeHeight + headBobY, this.playerPos.z);
     _euler.set(
       THREE.MathUtils.clamp(this.pitch + this.recoilKick + shakePitch, -1.5, 1.5),
@@ -2066,8 +2227,11 @@ export class BackroomsEngine {
 
     let nearestDist = Infinity;
     let nearestLabel: string | null = null;
-    // Iterate over a snapshot: the director may add entities during this frame.
-    for (const ent of [...this.entities]) {
+    // Iterate over a snapshot (a reused array): the director may add entities during this frame.
+    const snapshot = this.entityScratch;
+    snapshot.length = 0;
+    for (const ent of this.entities) snapshot.push(ent);
+    for (const ent of snapshot) {
       if (ent.isRemoved) continue;
       if (!ent.voice) ent.voice = this.audio.createVoice();
       ent.update(delta, this.perception, this.entityWorld, this.entityHooks);
@@ -2136,7 +2300,6 @@ export class BackroomsEngine {
           p.collected = true;
           // Hide only the cassette so the office table remains visible as a hiding spot.
           p.rotTarget.visible = false;
-          if (p.light) p.light.intensity = 0;
           this.tapesCollected++;
           this.audio.playPickup('tape');
           this.tapeBeacons.get(p.id)?.dispose();
@@ -2154,8 +2317,8 @@ export class BackroomsEngine {
           if (this.tapesCollected >= this.tapesTotal) {
             this.exitUnlocked = true;
             this.exitBeaconMat.color.setHex(0x3dff88);
-            this.exitLight.color.setHex(0x3dff88);
-            this.exitLight.intensity = 3.2;
+            this.exitLightColor = 0x3dff88;
+            this.exitLightIntensity = 3.2;
             this.audio.playExitUnlocked();
             this.pushNotification(`All 4 VHS Tapes recovered. Exit UNLOCKED. ${flavor}`, 'danger');
           } else {
@@ -2216,7 +2379,7 @@ export class BackroomsEngine {
       return;
     }
 
-    this.updateCeilingLights(timeSec);
+    this.updateLights(timeSec);
     this.audio.updateAmbient(delta, nearestDist, true);
 
     this.hudEmitTimer -= delta;
@@ -2226,18 +2389,24 @@ export class BackroomsEngine {
     }
   }
 
-  private updateCeilingLights(timeSec: number): void {
+  /**
+   * Point lights are one fixed pool: ceiling fixtures, uncollected tapes, the exit beacon and the muzzle flash
+   * compete for the same slots, nearest first. The number of lights never changes, so no lit shader is
+   * recompiled at runtime, and every pixel pays for at most activeLightCount point lights.
+   */
+  private updateLights(timeSec: number): void {
     const fixtures = this.level.fixtures;
-    if (fixtures.length === 0) return;
-
     const camPos = this.camera.position;
     const dt = Math.min(0.1, Math.max(0, timeSec - this.lastLightTime));
     this.lastLightTime = timeSec;
-    if (this.fixtureLevels.length !== fixtures.length) this.fixtureLevels = new Float32Array(fixtures.length).fill(1);
+    if (this.fixtureLevels.length !== fixtures.length) {
+      this.fixtureLevels = new Float32Array(fixtures.length).fill(1);
+      this.fixtureIntensity = new Float32Array(fixtures.length);
+    }
+    this.lightCandidates = 0;
 
-    // Update fixture flicker brightness & find 8 nearest active fixtures
-    const candidates: Array<{ idx: number; distSq: number; intensity: number }> = [];
-
+    // Fixture flicker brightness, panels and glows; nearby working fixtures are offered a light slot.
+    let panelDirty = false;
     for (let i = 0; i < fixtures.length; i++) {
       const f = fixtures[i];
       // Modes change at runtime as the director fails lights.
@@ -2260,33 +2429,91 @@ export class BackroomsEngine {
           const b = 0.25 + factor * 0.75;
           this.fixtureColorTemp.setRGB(b, b * 0.96, b * 0.82);
           this.lightPanelInstanced.setColorAt(i, this.fixtureColorTemp);
+          panelDirty = true;
         }
-        const glow = this.fixtureGlows[i];
-        if (glow) glow.visible = factor > 0.3;
+        this.setGlow(i, factor > 0.3);
       }
+      this.fixtureIntensity[i] = intensity;
 
       const dx = f.x - camPos.x;
       const dz = f.z - camPos.z;
-      candidates.push({ idx: i, distSq: dx * dx + dz * dz, intensity });
+      const distSq = dx * dx + dz * dz;
+      if (distSq < 256) this.offerLight(distSq, i);
     }
-
-    if (this.lightPanelInstanced?.instanceColor) {
+    if (panelDirty && this.lightPanelInstanced?.instanceColor) {
       this.lightPanelInstanced.instanceColor.needsUpdate = true;
     }
+    if (this.glowColorDirty && this.glowInstanced?.instanceColor) {
+      this.glowInstanced.instanceColor.needsUpdate = true;
+      this.glowColorDirty = false;
+    }
 
-    candidates.sort((a, b) => a.distSq - b.distSq);
+    for (let i = 0; i < this.pickups.length; i++) {
+      const p = this.pickups[i];
+      if (p.kind !== 'tape' || p.collected) continue;
+      const distSq = (p.x - camPos.x) ** 2 + (p.z - camPos.z) ** 2;
+      if (distSq < 196) this.offerLight(distSq * FEATURE_LIGHT_WEIGHT, LIGHT_TAPE_BASE - i);
+    }
+    const exitDistSq = (this.exitLightPos.x - camPos.x) ** 2 + (this.exitLightPos.z - camPos.z) ** 2;
+    if (exitDistSq < 256) this.offerLight(exitDistSq * FEATURE_LIGHT_WEIGHT, LIGHT_EXIT);
+    if (this.weapon.muzzleLightIntensity > 0) this.offerLight(-1, LIGHT_MUZZLE);
 
-    for (let i = 0; i < this.pooledLights.length; i++) {
-      const pl = this.pooledLights[i];
-      if (i < this.activeLightCount && i < candidates.length && candidates[i].distSq < 256) {
-        const c = candidates[i];
-        const f = fixtures[c.idx];
-        pl.position.set(f.x, WALL_HEIGHT - 0.25, f.z);
-        pl.intensity = c.intensity;
-      } else {
+    for (let s = 0; s < this.pooledLights.length; s++) {
+      const pl = this.pooledLights[s];
+      if (s >= this.lightCandidates) {
         pl.intensity = 0;
+        continue;
+      }
+      const src = this.lightSource[s];
+      if (src >= 0) {
+        const f = fixtures[src];
+        pl.position.set(f.x, WALL_HEIGHT - 0.25, f.z);
+        this.setPooledLight(pl, 0xfff0b8, this.fixtureIntensity[src], 11.5, 1.85);
+      } else if (src === LIGHT_MUZZLE) {
+        this.weapon.getMuzzleWorldPosition(pl.position);
+        this.setPooledLight(pl, 0xffb84d, this.weapon.muzzleLightIntensity, 8, 2);
+      } else if (src === LIGHT_EXIT) {
+        pl.position.copy(this.exitLightPos);
+        this.setPooledLight(pl, this.exitLightColor, this.exitLightIntensity, 9, 1.8);
+      } else {
+        const p = this.pickups[LIGHT_TAPE_BASE - src];
+        pl.position.set(p.x, 1.2, p.z);
+        this.setPooledLight(pl, 0xffa726, 1.35, 5.2, 1.8);
       }
     }
+  }
+
+  /** Keep the activeLightCount lowest keys, sorted, by insertion (at most 8 entries). */
+  private offerLight(key: number, source: number): void {
+    const n = this.activeLightCount;
+    let i: number;
+    if (this.lightCandidates < n) {
+      i = this.lightCandidates++;
+    } else {
+      if (key >= this.lightKey[n - 1]) return;
+      i = n - 1;
+    }
+    while (i > 0 && this.lightKey[i - 1] > key) {
+      this.lightKey[i] = this.lightKey[i - 1];
+      this.lightSource[i] = this.lightSource[i - 1];
+      i--;
+    }
+    this.lightKey[i] = key;
+    this.lightSource[i] = source;
+  }
+
+  private setPooledLight(pl: THREE.PointLight, color: number, intensity: number, distance: number, decay: number): void {
+    pl.color.setHex(color);
+    pl.intensity = intensity;
+    pl.distance = distance;
+    pl.decay = decay;
+  }
+
+  private setGlow(idx: number, on: boolean): void {
+    if (!this.glowInstanced || (this.glowOn[idx] === 1) === on) return;
+    this.glowOn[idx] = on ? 1 : 0;
+    this.glowInstanced.setColorAt(idx, on ? GLOW_ON : GLOW_OFF);
+    this.glowColorDirty = true;
   }
 
   /** Bearing of the last attacker relative to the view: 0 ahead, +90 right, +-180 behind (CSS-clockwise). */
@@ -2354,6 +2581,7 @@ export class BackroomsEngine {
       this.camera.updateProjectionMatrix();
     }
     if (qualityChanged) this.applyQuality(this.resolveQuality(settings.quality));
+    this.renderRequested = true;
     this.emitHud();
   }
 
@@ -2513,7 +2741,11 @@ export class BackroomsEngine {
     nearestEntityDist = this.lastNearestEntityDist,
     nearestEntityLabel: string | null = this.lastNearestEntityLabel,
   ): void {
-    this.onHudUpdate(this.buildHudSnapshot(webglError, nearestEntityDist, nearestEntityLabel));
+    const next = this.buildHudSnapshot(webglError, nearestEntityDist, nearestEntityLabel);
+    // React re-renders the whole HUD on every push, so push only when something on screen would change.
+    if (!hudChanged(this.lastHud, next)) return;
+    this.lastHud = next;
+    this.onHudUpdate(next);
   }
 
   private installDebugApi(): void {
@@ -2618,7 +2850,7 @@ export class BackroomsEngine {
             this.playerPos.copy(cand);
             alive.faceWorldPoint(cand.x, cand.z);
             window.__BACKROOMS_DEBUG__?.lookAtWorld(alive.position.x, 1.35, alive.position.z);
-            this.updateCeilingLights(performance.now() * 0.001);
+            this.updateLights(performance.now() * 0.001);
             this.renderer.render(this.scene, this.camera);
             this.emitHud(null, Math.hypot(alive.position.x - cand.x, alive.position.z - cand.z), alive.label);
             return true;
@@ -2633,7 +2865,7 @@ export class BackroomsEngine {
         resolveCircleWallCollision(cand, 0.45, this.level.grid, this.level.pillars, this.colliders);
         this.playerPos.copy(cand);
         window.__BACKROOMS_DEBUG__?.lookAtWorld(tape.x, 0.95, tape.z);
-        this.updateCeilingLights(performance.now() * 0.001);
+        this.updateLights(performance.now() * 0.001);
         this.renderer.render(this.scene, this.camera);
         return true;
       },
@@ -2641,8 +2873,8 @@ export class BackroomsEngine {
         this.tapesCollected = this.tapesTotal;
         this.exitUnlocked = true;
         this.exitBeaconMat.color.setHex(0x3dff88);
-        this.exitLight.color.setHex(0x3dff88);
-        this.exitLight.intensity = 3.6;
+        this.exitLightColor = 0x3dff88;
+        this.exitLightIntensity = 3.6;
         this.pushNotification('All 4 VHS Tapes recovered! Sector 00 Exit is now UNLOCKED.', 'success');
         const n = this.level.exitNormal;
         this.playerPos.set(this.level.exitPos.x + n.x * 3.0, 1.68, this.level.exitPos.z + n.z * 3.0);
@@ -2651,7 +2883,7 @@ export class BackroomsEngine {
           1.4,
           this.level.exitPos.z,
         );
-        this.updateCeilingLights(performance.now() * 0.001);
+        this.updateLights(performance.now() * 0.001);
         this.renderer.render(this.scene, this.camera);
         this.emitHud();
       },
@@ -2674,6 +2906,8 @@ export class BackroomsEngine {
       triggerReload: () => {
         this.startReload();
       },
+      perf: () => this.perfReport(),
+      bench: (frames = 120) => this.runBench(frames),
     };
   }
 
@@ -2716,6 +2950,8 @@ export class BackroomsEngine {
       this.scene.environment = null;
     }
 
+    this.gpuTimer?.dispose();
+    this.gpuTimer = null;
     this.audio.dispose();
     this.particleGeo.dispose();
     this.particleMats.forEach((m) => m.dispose());
