@@ -1,17 +1,36 @@
 import React from 'react';
 import { Volume2, VolumeX, Flashlight, Crosshair } from 'lucide-react';
 import { DifficultyMode, HudState } from '../game/types';
+import { RunMode } from '../game/storage';
+
+export interface RunSummary {
+  mode: RunMode;
+  dailyLabel: string;
+  /** Best escape time for this difficulty (daily: for today's layout). */
+  bestTime: number | null;
+  isNewBest: boolean;
+}
 
 interface GameHudProps {
   hud: HudState;
   selectedDifficulty: DifficultyMode;
   onSelectDifficulty: (diff: DifficultyMode) => void;
+  selectedMode: RunMode;
+  onSelectMode: (mode: RunMode) => void;
+  dailyLabel: string;
+  /** Best escape times shown on the title screen. */
+  bestTimes: { all: number | null; daily: number | null };
+  /** Outcome of the run that just ended (results screen). */
+  summary: RunSummary | null;
   onStart: () => void;
   onResume: () => void;
   onRestart: () => void;
+  onRetryLayout: () => void;
   onReturnTitle: () => void;
   onToggleMute: () => void;
   onRequestLock: () => void;
+  onOpenHowTo: () => void;
+  onOpenSettings: () => void;
 }
 
 function formatTimecode(seconds: number): string {
@@ -23,16 +42,28 @@ function formatTimecode(seconds: number): string {
   return `${String(hrs).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function formatBest(seconds: number | null): string {
+  return seconds === null ? '--:--:--' : formatTimecode(seconds);
+}
+
 export const GameHud: React.FC<GameHudProps> = ({
   hud,
   selectedDifficulty,
   onSelectDifficulty,
+  selectedMode,
+  onSelectMode,
+  dailyLabel,
+  bestTimes,
+  summary,
   onStart,
   onResume,
   onRestart,
+  onRetryLayout,
   onReturnTitle,
   onToggleMute,
   onRequestLock,
+  onOpenHowTo,
+  onOpenSettings,
 }) => {
   const accuracy =
     hud.shotsFired > 0 ? Math.round((hud.shotsHit / hud.shotsFired) * 100) : 0;
@@ -185,6 +216,34 @@ export const GameHud: React.FC<GameHudProps> = ({
             </div>
           </div>
 
+          {/* New-player tip (left) */}
+          {hud.tip && (
+            <div
+              key={hud.tip.id}
+              className="absolute left-6 top-56 z-10 max-w-xs border-l-2 border-[#e8b838] bg-[#0e0d09]/88 px-4 py-3"
+              role="status"
+            >
+              <div className="font-mono-hud text-[11px] tracking-wider text-[#e8b838]">
+                TIP · {hud.tip.title.toUpperCase()}
+              </div>
+              <div className="mt-1 text-xs leading-relaxed text-[#ebe3c5]">{hud.tip.text}</div>
+            </div>
+          )}
+
+          {/* Recovered tape playing back */}
+          {hud.tapeLog && (
+            <div className="absolute left-1/2 top-24 z-10 w-[min(560px,90vw)] -translate-x-1/2 border border-[#d4be74]/30 bg-[#0b0a07]/90 px-5 py-3">
+              <div className="flex items-center justify-between font-mono-hud text-[11px] tracking-wider">
+                <span className="text-[#e8b838]">▶ PLAY · VHS LOG {String(hud.tapeLog.index).padStart(2, '0')}/{String(hud.tapeLog.total).padStart(2, '0')}</span>
+                <span className="text-[#786f50]">SP · TRACKING</span>
+              </div>
+              <p className="mt-2 min-h-[2.5rem] font-mono-hud text-xs leading-relaxed text-[#f2ead0]">
+                {hud.tapeLog.text.slice(0, hud.tapeLog.shownChars)}
+                {hud.tapeLog.shownChars < hud.tapeLog.text.length && <span className="animate-pulse">▌</span>}
+              </p>
+            </div>
+          )}
+
           {/* Center Crosshair, Hitmarker & Contextual Prompts */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {/* Dynamic Crosshair */}
@@ -293,12 +352,14 @@ export const GameHud: React.FC<GameHudProps> = ({
               <div className="grid grid-cols-2 gap-3 pt-0.5">
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between text-[11px] text-[#9e9472]">
-                    <span>Stamina</span>
+                    <span className={hud.winded ? 'text-[#f87171]' : undefined}>
+                      {hud.winded ? 'Winded' : 'Stamina'}
+                    </span>
                     <span className="font-mono-hud">{hud.stamina}%</span>
                   </div>
                   <div className="h-1 w-full bg-[#292519]">
                     <div
-                      className="h-full bg-[#a89f7c]"
+                      className={`h-full ${hud.winded ? 'bg-[#b45309]' : 'bg-[#a89f7c]'}`}
                       style={{ width: `${hud.stamina}%` }}
                     />
                   </div>
@@ -412,8 +473,33 @@ export const GameHud: React.FC<GameHudProps> = ({
               does not stay dead.
             </p>
 
-            {/* Difficulty Selection */}
+            {/* Layout mode */}
             <div className="mt-6 flex flex-col gap-2">
+              <span className="text-xs font-medium text-[#bfb693]">Layout</span>
+              <div className="inline-flex w-fit border border-[#d4be74]/25 bg-[#17150e] p-1">
+                <button
+                  type="button"
+                  onClick={() => onSelectMode('random')}
+                  className={`px-4 py-1.5 text-xs font-medium transition-colors ${
+                    selectedMode === 'random' ? 'bg-[#d4be74] text-[#0e0d09]' : 'text-[#bfb693] hover:text-white'
+                  }`}
+                >
+                  New every run
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectMode('daily')}
+                  className={`px-4 py-1.5 text-xs font-medium transition-colors ${
+                    selectedMode === 'daily' ? 'bg-[#d4be74] text-[#0e0d09]' : 'text-[#bfb693] hover:text-white'
+                  }`}
+                >
+                  Daily · {dailyLabel}
+                </button>
+              </div>
+            </div>
+
+            {/* Difficulty Selection */}
+            <div className="mt-4 flex flex-col gap-2">
               <span className="text-xs font-medium text-[#bfb693]">Difficulty</span>
               <div className="inline-flex w-fit border border-[#d4be74]/25 bg-[#17150e] p-1">
                 <button
@@ -449,13 +535,32 @@ export const GameHud: React.FC<GameHudProps> = ({
               >
                 Enter Level 0
               </button>
-              <span className="font-mono-hud text-xs text-[#9e9472]">
-                WASD Move · Mouse Look &amp; Shoot · RMB Aim · F Light · R Reload · C Crouch · E Door
+              <button
+                type="button"
+                onClick={onOpenHowTo}
+                className="border border-[#d4be74]/35 px-4 py-3 text-sm font-medium text-[#ebe3c5] hover:border-[#e8b838] hover:text-white"
+              >
+                How to Play
+              </button>
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="border border-[#d4be74]/20 px-4 py-3 text-sm font-medium text-[#bfb693] hover:border-[#e8b838] hover:text-white"
+              >
+                Settings
+              </button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 font-mono-hud text-xs text-[#9e9472]">
+              <span>
+                Best escape ({selectedDifficulty}): <span className="text-[#f5efe0]">{formatBest(bestTimes.all)}</span>
+              </span>
+              <span>
+                Today&apos;s daily: <span className="text-[#f5efe0]">{formatBest(bestTimes.daily)}</span>
               </span>
             </div>
           </div>
 
-          <div className="flex items-center justify-between font-mono-hud text-xs text-[#9e9472]">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono-hud text-xs text-[#9e9472]">
             <span>Howler hunts by sound · Smiler fears your light · Skin-Stealer mimics supplies</span>
             <span>Close doors behind you · Hide under desks · Batteries do not recharge</span>
           </div>
@@ -479,6 +584,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                 className="w-full bg-[#e8b838] px-5 py-2.5 text-sm font-semibold text-[#0d0c08] hover:bg-[#f5cb5c]"
               >
                 Resume
+              </button>
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="w-full border border-[#d4be74]/30 bg-[#1a1710] px-5 py-2.5 text-sm font-medium text-[#ebe3c5] hover:border-[#e8b838]"
+              >
+                Settings
               </button>
               <button
                 type="button"
@@ -546,13 +658,36 @@ export const GameHud: React.FC<GameHudProps> = ({
               </div>
             </div>
 
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 font-mono-hud text-xs text-[#9e9472]">
+              <span>
+                {summary?.mode === 'daily' ? `DAILY ${summary.dailyLabel}` : 'LAYOUT'} · SEED{' '}
+                <span className="select-text text-[#f5efe0]">{hud.seed}</span>
+              </span>
+              <span>
+                {hud.phase === 'victory' && summary?.isNewBest ? (
+                  <span className="text-[#5ce696]">NEW BEST ESCAPE</span>
+                ) : (
+                  <>
+                    Best escape: <span className="text-[#f5efe0]">{formatBest(summary?.bestTime ?? null)}</span>
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={onRestart}
                 className="flex-1 bg-[#e8b838] px-5 py-3 text-sm font-semibold text-[#0d0c08] hover:bg-[#f5cb5c]"
               >
-                Play Again
+                {summary?.mode === 'daily' ? 'Play Again' : 'New Layout'}
+              </button>
+              <button
+                type="button"
+                onClick={onRetryLayout}
+                className="border border-[#d4be74]/30 bg-[#1a1710] px-5 py-3 text-sm font-medium text-[#ebe3c5] hover:border-[#e8b838]"
+              >
+                Retry This Layout
               </button>
               <button
                 type="button"

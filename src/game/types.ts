@@ -23,12 +23,29 @@ export interface HudNotification {
   tone: 'info' | 'warning' | 'success' | 'danger';
 }
 
+/** A contextual new-player tip. */
+export interface HudTip {
+  id: string;
+  title: string;
+  text: string;
+}
+
+/** A recovered VHS tape playing back its log, typed out over a few seconds. */
+export interface HudTapeLog {
+  index: number;
+  total: number;
+  text: string;
+  shownChars: number;
+}
+
 export interface HudState {
   phase: GamePhase;
   difficulty: DifficultyMode;
   health: number;
   maxHealth: number;
   stamina: number;
+  /** Stamina ran out: no sprinting until it recovers to 35%. */
+  winded: boolean;
   battery: number;
   flashlightOn: boolean;
   ammoInMag: number;
@@ -61,6 +78,10 @@ export interface HudState {
   threatLevel: number;
   muted: boolean;
   notification: HudNotification | null;
+  tip: HudTip | null;
+  tapeLog: HudTapeLog | null;
+  /** Layout seed of the current run (shown on the results screen; replayable). */
+  seed: number;
   interactPrompt: string | null;
   webglError: string | null;
 }

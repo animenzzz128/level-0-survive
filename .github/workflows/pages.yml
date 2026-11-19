@@ -27,6 +27,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck
         run: npm run lint
+      - name: Level generation tests
+        run: npm test
       - name: Build
         run: npm run build
         env:

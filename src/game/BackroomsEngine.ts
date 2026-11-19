@@ -29,6 +29,18 @@ import {
   PickupKind,
 } from './types';
 import { TacticalWeaponViewmodel } from './weapon';
+import { GuideContext, GuideDirector } from './guide';
+import { DEFAULT_SETTINGS, GameSettings, QualityLevel, loadSeenTips, saveSeenTips } from './storage';
+
+// Recovered tapes play back one log each, in pickup order: a previous wanderer's notes that
+// double as in-world hints about the systems that just escalated.
+const TAPE_LOGS = [
+  'DAY 3. The hum never stops. Every time I take one of these tapes, more lights go out. Something wants them back.',
+  'The tall pale one cannot see. It listens. I took my shoes off. Walk. Do not run. Never shoot unless you have to.',
+  'Bullets go through the grin. Light makes it back away, so the batteries are worth more than the gun.',
+  'If you are hearing this, the door is open, and they know. Do not stop for the water. Not all of it is water.',
+];
+const TAPE_LOG_CPS = 40;
 
 interface PickupInstance {
   id: number;
@@ -77,7 +89,7 @@ declare global {
       teleportToDoor: (index: number) => boolean;
       setCrouch: (on: boolean) => void;
       interact: () => void;
-      startGame: (difficulty?: DifficultyMode) => void;
+      startGame: (difficulty?: DifficultyMode, seed?: number) => void;
       lookAtWorld: (x: number, y: number, z: number) => void;
       teleportNearEntity: () => boolean;
       teleportNearEntityByType: (archetype: EntityArchetype) => boolean;
@@ -182,6 +194,9 @@ export class BackroomsEngine {
   private crosshairSpread = 0;
   private screenShake = 0;
   private footstepTimer = 0;
+  private winded = false;
+  private bobPhase = 0;
+  private bobAmp = 0;
   private titleOrbitTime = 0;
   private hudEmitTimer = 0;
 
@@ -203,6 +218,15 @@ export class BackroomsEngine {
   private fixtureGlows: Array<THREE.Mesh | null> = [];
   private director!: ThreatDirector;
   private entityIdCounter = 0;
+
+  // Player settings, onboarding and run flavour
+  private gpuName = '';
+  private settings: GameSettings = { ...DEFAULT_SETTINGS };
+  private settingsApplied = false;
+  private activeLightCount = 8;
+  private readonly guide = new GuideDirector(loadSeenTips(), (seen) => saveSeenTips(seen));
+  private tapeBeacons = new Map<number, { dispose: () => void }>();
+  private tapeLog: { index: number; text: string; elapsed: number; duration: number } | null = null;
 
   private readonly perception: PlayerPerception = {
     pos: this.playerPos,
@@ -276,6 +300,7 @@ export class BackroomsEngine {
     const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
     const gpu = String(gl.getParameter(param) || '');
     gl.getExtension('WEBGL_lose_context')?.loseContext();
+    this.gpuName = gpu;
     return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
   }
 
@@ -455,6 +480,8 @@ export class BackroomsEngine {
     clearGroup(this.pickupGroup);
     clearGroup(this.fxGroup);
     for (const ent of this.entities) ent.voice?.dispose();
+    for (const beacon of this.tapeBeacons.values()) beacon.dispose();
+    this.tapeBeacons.clear();
     this.entities = [];
     this.pickups = [];
     this.particles = [];
@@ -730,6 +757,7 @@ export class BackroomsEngine {
   private buildExitDoor(): void {
     const exitGroup = new THREE.Group();
     exitGroup.position.copy(this.level.exitPos);
+    exitGroup.rotation.y = this.level.exitRotY;
 
     // Heavy metal door frame
     const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.55, 0.2), this.materials.exitFrame);
@@ -1211,15 +1239,19 @@ export class BackroomsEngine {
     }
   }
 
-  public startNewGame(difficulty: DifficultyMode): void {
+  /** Start a run. Pass a seed to replay a layout (daily runs, "retry this layout"); omit for a fresh one. */
+  public startNewGame(difficulty: DifficultyMode, seed?: number): void {
     this.audio.init();
     this.difficulty = difficulty;
-    const seed = Math.floor(202611 + Math.random() * 10000);
-    this.buildLevel(seed, difficulty);
+    const layoutSeed = seed ?? Math.floor(Math.random() * 2 ** 31);
+    this.buildLevel(layoutSeed, difficulty);
+    this.tapeLog = null;
+    this.guide.reset();
 
     this.maxHealth = 100;
     this.health = 100;
     this.stamina = 100;
+    this.winded = false;
     this.battery = 100;
     this.flashlightOn = true;
 
@@ -1390,7 +1422,7 @@ export class BackroomsEngine {
     if (e.code === 'Escape') {
       if (this.phase === 'playing') {
         this.pauseGame();
-      } else if (this.phase === 'paused' && performance.now() - this.pausedAtMs > 300) {
+      } else if (this.phase === 'paused' && !this.uiOverlayOpen && performance.now() - this.pausedAtMs > 300) {
         // Some browsers deliver the Esc keydown right after Esc already released the pointer lock (and paused);
         // ignore that echo so one press does not pause and immediately resume.
         this.resumeGame();
@@ -1453,7 +1485,8 @@ export class BackroomsEngine {
 
   private onMouseMove = (e: MouseEvent): void => {
     if (this.phase !== 'playing') return;
-    const sens = this.isAiming ? 0.0014 : 0.0022;
+    const sens = (this.isAiming ? 0.0014 : 0.0022) * this.settings.sensitivity;
+    const ySign = this.settings.invertY ? -1 : 1;
     if (this.pointerLocked) {
       if (!this.rawMouseInput) {
         // Without raw input, Chromium on Windows occasionally reports the cursor re-centre warp as a single
@@ -1463,7 +1496,7 @@ export class BackroomsEngine {
       }
       this.targetYaw -= e.movementX * sens;
       this.targetPitch = THREE.MathUtils.clamp(
-        this.targetPitch - e.movementY * sens,
+        this.targetPitch - e.movementY * sens * ySign,
         -1.38,
         1.38,
       );
@@ -1476,7 +1509,7 @@ export class BackroomsEngine {
       this.lastDragY = e.clientY;
       this.targetYaw -= dx * sens * 1.4;
       this.targetPitch = THREE.MathUtils.clamp(
-        this.targetPitch - dy * sens * 1.4,
+        this.targetPitch - dy * sens * 1.4 * ySign,
         -1.38,
         1.38,
       );
@@ -1730,7 +1763,7 @@ export class BackroomsEngine {
     this.swayY = THREE.MathUtils.damp(this.swayY, 0, 10, delta);
 
     // Aim FOV interpolation
-    const targetFov = this.isAiming ? 56 : 72;
+    const targetFov = this.isAiming ? this.settings.fov - 16 : this.settings.fov;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 14, delta);
       this.camera.updateProjectionMatrix();
@@ -1742,12 +1775,16 @@ export class BackroomsEngine {
     const isMoving = forwardInput !== 0 || strafeInput !== 0;
     const wantsSprint = Boolean(this.keys['ShiftLeft'] || this.keys['ShiftRight']) && isMoving && !this.isAiming;
     if (wantsSprint && this.crouched) this.crouched = false;
-    const isSprinting = wantsSprint && this.stamina > 2;
+    // Hysteresis: once stamina is spent the player is winded until it recovers to 35%. Without it, holding
+    // Shift on an empty bar flipped sprint on and off every frame (speed and head bob stuttering).
+    const isSprinting = wantsSprint && !this.winded && this.stamina > 0;
 
     if (isSprinting) {
       this.stamina = Math.max(0, this.stamina - 22 * delta);
+      if (this.stamina <= 0) this.winded = true;
     } else {
       this.stamina = Math.min(100, this.stamina + 14 * delta);
+      if (this.winded && this.stamina >= 35) this.winded = false;
     }
 
     const moveSpeed = isSprinting ? 5.65 : this.crouched ? 1.9 : this.isAiming ? 2.3 : 3.65;
@@ -1812,9 +1849,11 @@ export class BackroomsEngine {
     );
 
     // Apply camera position + headbob + shake
-    const headBobY = isMoving
-      ? Math.sin(this.elapsedSeconds * (isSprinting ? 14 : 9)) * (this.crouched ? 0.018 : 0.042)
-      : 0;
+    // Head bob: accumulate phase (so changing pace never jumps the camera) and ease the amplitude in and out.
+    this.bobPhase += delta * (isSprinting ? 14 : this.crouched ? 7 : 9);
+    const targetBobAmp = !isMoving ? 0 : this.crouched ? 0.018 : isSprinting ? 0.042 : 0.032;
+    this.bobAmp = THREE.MathUtils.damp(this.bobAmp, targetBobAmp, 8, delta);
+    const headBobY = Math.sin(this.bobPhase) * this.bobAmp;
     const shakeX = (Math.random() - 0.5) * this.screenShake;
     const shakeY = (Math.random() - 0.5) * this.screenShake;
     this.camera.position.set(
@@ -1902,6 +1941,16 @@ export class BackroomsEngine {
           p.group.visible = false;
           this.tapesCollected++;
           this.audio.playPickup('tape');
+          this.tapeBeacons.get(p.id)?.dispose();
+          this.tapeBeacons.delete(p.id);
+          const logText = TAPE_LOGS[Math.min(TAPE_LOGS.length, this.tapesCollected) - 1];
+          this.tapeLog = {
+            index: this.tapesCollected,
+            text: logText,
+            elapsed: 0,
+            duration: logText.length / TAPE_LOG_CPS + 4.5,
+          };
+          this.audio.playTapeLog();
           // Every tape makes Level 0 more dangerous (lights fail, another entity wakes, the hum grows).
           const flavor = this.director.tapeCollected(this.tapesCollected);
           if (this.tapesCollected >= this.tapesTotal) {
@@ -1938,6 +1987,18 @@ export class BackroomsEngine {
         }
       }
     }
+
+    // Uncollected tapes hiss through positional audio so they can be found by ear
+    for (const p of this.pickups) {
+      if (p.kind !== 'tape' || p.collected || this.tapeBeacons.has(p.id)) continue;
+      const beacon = this.audio.createTapeBeacon(p.x, 1.0, p.z);
+      if (beacon) this.tapeBeacons.set(p.id, beacon);
+    }
+    if (this.tapeLog) {
+      this.tapeLog.elapsed += delta;
+      if (this.tapeLog.elapsed > this.tapeLog.duration) this.tapeLog = null;
+    }
+    this.guide.update(delta, this.buildGuideContext(nearestDist));
 
     // Check Sector Exit extraction
     const exitDist = Math.hypot(
@@ -2006,7 +2067,7 @@ export class BackroomsEngine {
 
     for (let i = 0; i < this.pooledLights.length; i++) {
       const pl = this.pooledLights[i];
-      if (i < candidates.length && candidates[i].distSq < 256) {
+      if (i < this.activeLightCount && i < candidates.length && candidates[i].distSq < 256) {
         const c = candidates[i];
         const f = fixtures[c.idx];
         pl.position.set(f.x, WALL_HEIGHT - 0.25, f.z);
@@ -2015,6 +2076,105 @@ export class BackroomsEngine {
         pl.intensity = 0;
       }
     }
+  }
+
+  private buildGuideContext(nearestThreatDist: number): GuideContext {
+    let howlerNear = false;
+    let smilerNear = false;
+    let skinStealerRevealed = false;
+    let hunting = false;
+    for (const e of this.entities) {
+      if (!e.isThreat) continue;
+      const d = Math.hypot(e.position.x - this.playerPos.x, e.position.z - this.playerPos.z);
+      const inSight = e.hasLineOfSightToPlayer;
+      if (e.archetype === 'howler' && ((inSight && d < 14) || (e.state === 'chase' && d < 20))) howlerNear = true;
+      if (e.archetype === 'smiler' && inSight && d < 16) smilerNear = true;
+      if (e.archetype === 'brute' && e.state === 'chase' && d < 16) skinStealerRevealed = true;
+      if (e.state === 'chase' || e.state === 'investigate') hunting = true;
+    }
+    return {
+      elapsed: this.elapsedSeconds,
+      battery: this.battery,
+      flashlightOn: this.flashlightOn,
+      ammoTotal: this.ammoInMag + this.ammoReserve,
+      winded: this.winded,
+      crouched: this.crouched,
+      tapesCollected: this.tapesCollected,
+      exitUnlocked: this.exitUnlocked,
+      nearDoor: this.findInteractableDoor() !== null,
+      nearDesk: this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 1.4),
+      somethingNear: nearestThreatDist < 18 || hunting,
+      howlerNear,
+      smilerNear,
+      skinStealerRevealed,
+    };
+  }
+
+  /** Settings / How-to-play overlay is open: Esc must not resume the game underneath it. */
+  public uiOverlayOpen = false;
+
+  public resetTips(): void {
+    this.guide.clearSeen();
+  }
+
+  /** Apply player settings (Settings panel / localStorage). Safe to call at any time. */
+  public applySettings(settings: GameSettings): void {
+    const qualityChanged = !this.settingsApplied || settings.quality !== this.settings.quality;
+    this.settings = { ...settings };
+    this.settingsApplied = true;
+    this.audio.setVolume(settings.volume);
+    this.guide.enabled = settings.tips;
+    if (this.phase !== 'playing' && this.camera) {
+      this.camera.fov = settings.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (qualityChanged) this.applyQuality(this.resolveQuality(settings.quality));
+    this.emitHud();
+  }
+
+  /** 'auto' picks Medium on integrated / mobile GPUs and High elsewhere. */
+  public resolveQuality(quality: QualityLevel): 'low' | 'medium' | 'high' {
+    if (quality !== 'auto') return quality;
+    if (this.isSoftwareGl) return 'low';
+    return /Intel|Iris|UHD|Radeon\(TM\) Graphics|Mali|Adreno|PowerVR|Apple GPU/i.test(this.gpuName)
+      ? 'medium'
+      : 'high';
+  }
+
+  private applyQuality(quality: 'low' | 'medium' | 'high'): void {
+    if (!this.renderer) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ratio = this.isSoftwareGl
+      ? 1
+      : quality === 'high'
+        ? Math.min(dpr, 2)
+        : quality === 'medium'
+          ? Math.min(dpr, 1.25)
+          : Math.min(dpr, 1) * 0.85;
+    this.renderer.setPixelRatio(ratio);
+    this.onResize();
+
+    const shadows = !this.isSoftwareGl && quality !== 'low';
+    const mapSize = quality === 'high' ? 1024 : 512;
+    if (this.renderer.shadowMap.enabled !== shadows || this.flashlight.shadow.mapSize.x !== mapSize) {
+      this.renderer.shadowMap.enabled = shadows;
+      this.flashlight.castShadow = shadows;
+      this.flashlight.shadow.mapSize.set(mapSize, mapSize);
+      this.flashlight.shadow.map?.dispose();
+      this.flashlight.shadow.map = null;
+      // Shadow on/off changes every lit shader: rebuild programs on the next frame.
+      this.scene.traverse((obj) => {
+        const mat = (obj as THREE.Mesh).material;
+        if (!mat) return;
+        for (const m of Array.isArray(mat) ? mat : [mat]) m.needsUpdate = true;
+      });
+    }
+
+    // Fewer per-pixel ceiling lights on lower settings (invisible lights leave the shader entirely)
+    this.activeLightCount = quality === 'high' ? 8 : quality === 'medium' ? 6 : 4;
+    this.pooledLights.forEach((light, i) => {
+      light.visible = i < this.activeLightCount;
+    });
   }
 
   private buildHudSnapshot(
@@ -2056,6 +2216,7 @@ export class BackroomsEngine {
       health: Math.round(this.health),
       maxHealth: this.maxHealth,
       stamina: Math.round(this.stamina),
+      winded: this.winded,
       battery: Math.round(this.battery),
       flashlightOn: this.flashlightOn,
       ammoInMag: this.ammoInMag,
@@ -2085,6 +2246,16 @@ export class BackroomsEngine {
       threatLevel: this.director?.threatLevel ?? 0,
       muted: this.audio.isMuted(),
       notification: this.notification,
+      tip: this.phase === 'playing' ? this.guide.tip : null,
+      tapeLog: this.tapeLog
+        ? {
+            index: this.tapeLog.index,
+            total: this.tapesTotal,
+            text: this.tapeLog.text,
+            shownChars: Math.min(this.tapeLog.text.length, Math.floor(this.tapeLog.elapsed * TAPE_LOG_CPS)),
+          }
+        : null,
+      seed: this.level.seed,
       interactPrompt,
       webglError,
     };
@@ -2154,8 +2325,8 @@ export class BackroomsEngine {
         this.crouched = on;
       },
       interact: () => this.interactDoor(),
-      startGame: (diff = 'standard') => {
-        this.startNewGame(diff);
+      startGame: (diff = 'standard', seed?: number) => {
+        this.startNewGame(diff, seed);
       },
       lookAtWorld: (x: number, y: number, z: number) => {
         const dx = x - this.playerPos.x;
@@ -2220,7 +2391,8 @@ export class BackroomsEngine {
         this.exitLight.color.setHex(0x3dff88);
         this.exitLight.intensity = 3.6;
         this.pushNotification('All 4 VHS Tapes recovered! Sector 00 Exit is now UNLOCKED.', 'success');
-        this.playerPos.set(this.level.exitPos.x, 1.68, this.level.exitPos.z - 3.0);
+        const n = this.level.exitNormal;
+        this.playerPos.set(this.level.exitPos.x + n.x * 3.0, 1.68, this.level.exitPos.z + n.z * 3.0);
         window.__BACKROOMS_DEBUG__?.lookAtWorld(
           this.level.exitPos.x,
           1.4,
