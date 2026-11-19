@@ -1,8 +1,13 @@
 // Small localStorage-backed persistence: settings, best runs, daily seed and the new-player guide.
 // Every access is wrapped: private browsing or a full quota must never break the game.
+//
+// Saved data is versioned (save-systems skill): settings and records are stored as { version, data },
+// validated field by field on load, migrated forward from older formats, and never overwritten when a
+// newer build has already written a newer version (e.g. an old tab left open after an update).
 import { DifficultyMode } from './types';
 
 export type QualityLevel = 'auto' | 'low' | 'medium' | 'high';
+const QUALITY_LEVELS: readonly QualityLevel[] = ['auto', 'low', 'medium', 'high'];
 
 export interface GameSettings {
   /** Multiplier on mouse look speed. */
@@ -16,6 +21,13 @@ export interface GameSettings {
   /** Show contextual new-player tips. */
   tips: boolean;
 }
+
+/** Allowed ranges, shared with the Settings panel sliders. */
+export const SETTINGS_LIMITS = {
+  sensitivity: { min: 0.3, max: 3 },
+  volume: { min: 0, max: 1 },
+  fov: { min: 60, max: 95 },
+} as const;
 
 export const DEFAULT_SETTINGS: GameSettings = {
   sensitivity: 1,
@@ -34,15 +46,26 @@ export interface RunRecord {
   deaths: number;
 }
 
+interface Envelope<T> {
+  version: number;
+  data: T;
+}
+
 const KEY_SETTINGS = 'level0.settings.v1';
-const KEY_RECORDS = 'level0.records.v1';
+const SETTINGS_VERSION = 1;
+// Records moved to a new key when the level generator changed (seeded shuffle): daily layouts differ,
+// so daily times from the old key are not carried over. Older builds keep their own key untouched.
+const KEY_RECORDS_LEGACY = 'level0.records.v1';
+const KEY_RECORDS = 'level0.records.v2';
+const RECORDS_VERSION = 2;
+const DAILY_RECORD_DAYS = 30;
 const KEY_TIPS = 'level0.tips-seen.v1';
 const KEY_HOWTO = 'level0.howto-seen.v1';
 
-function readJson<T>(key: string): T | null {
+function readJson(key: string): unknown {
   try {
     const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
+    return raw ? (JSON.parse(raw) as unknown) : null;
   } catch {
     return null;
   }
@@ -52,21 +75,60 @@ function writeJson(key: string, value: unknown): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    /* storage unavailable: settings simply won't persist */
+    /* storage unavailable: data simply won't persist */
   }
 }
 
+function isEnvelope(value: unknown): value is Envelope<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { version?: unknown }).version === 'number' &&
+    'data' in value
+  );
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+/** Validate every field; anything missing, mistyped or out of range falls back to the default. */
+export function sanitizeSettings(raw: unknown): GameSettings {
+  const r = asObject(raw);
+  const L = SETTINGS_LIMITS;
+  return {
+    sensitivity: clampNumber(r.sensitivity, L.sensitivity.min, L.sensitivity.max, DEFAULT_SETTINGS.sensitivity),
+    invertY: typeof r.invertY === 'boolean' ? r.invertY : DEFAULT_SETTINGS.invertY,
+    volume: clampNumber(r.volume, L.volume.min, L.volume.max, DEFAULT_SETTINGS.volume),
+    fov: clampNumber(r.fov, L.fov.min, L.fov.max, DEFAULT_SETTINGS.fov),
+    quality: QUALITY_LEVELS.includes(r.quality as QualityLevel) ? (r.quality as QualityLevel) : DEFAULT_SETTINGS.quality,
+    tips: typeof r.tips === 'boolean' ? r.tips : DEFAULT_SETTINGS.tips,
+  };
+}
+
 export function loadSettings(): GameSettings {
-  const saved = readJson<Partial<GameSettings>>(KEY_SETTINGS);
-  return { ...DEFAULT_SETTINGS, ...(saved ?? {}) };
+  const stored = readJson(KEY_SETTINGS);
+  if (stored === null) return { ...DEFAULT_SETTINGS };
+  if (!isEnvelope(stored)) return sanitizeSettings(stored); // v0: the plain object earlier builds wrote
+  if (stored.version > SETTINGS_VERSION) return { ...DEFAULT_SETTINGS }; // written by a newer build
+  return sanitizeSettings(stored.data);
 }
 
 export function saveSettings(settings: GameSettings): void {
-  writeJson(KEY_SETTINGS, settings);
+  const stored = readJson(KEY_SETTINGS);
+  if (isEnvelope(stored) && stored.version > SETTINGS_VERSION) return; // never clobber newer data
+  writeJson(KEY_SETTINGS, { version: SETTINGS_VERSION, data: sanitizeSettings(settings) });
 }
 
 export function loadSeenTips(): Set<string> {
-  return new Set(readJson<string[]>(KEY_TIPS) ?? []);
+  const stored = readJson(KEY_TIPS);
+  return new Set(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : []);
 }
 
 export function saveSeenTips(seen: Set<string>): void {
@@ -79,7 +141,7 @@ export function resetGuide(): void {
 }
 
 export function hasSeenHowTo(): boolean {
-  return readJson<boolean>(KEY_HOWTO) === true;
+  return readJson(KEY_HOWTO) === true;
 }
 
 export function markHowToSeen(): void {
@@ -108,9 +170,53 @@ function recordKey(difficulty: DifficultyMode, mode: RunMode, dateLabel: string)
   return mode === 'daily' ? `daily:${dateLabel}:${difficulty}` : `all:${difficulty}`;
 }
 
+function sanitizeRecord(raw: unknown): RunRecord {
+  const r = asObject(raw);
+  const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
+  return {
+    bestTime:
+      typeof r.bestTime === 'number' && Number.isFinite(r.bestTime) && r.bestTime > 0 ? r.bestTime : null,
+    escapes: count(r.escapes),
+    deaths: count(r.deaths),
+  };
+}
+
+function sanitizeRecords(raw: unknown): Record<string, RunRecord> {
+  const out: Record<string, RunRecord> = {};
+  for (const [key, value] of Object.entries(asObject(raw))) {
+    if (/^(all|daily:\d{4}-\d{2}-\d{2}):[a-z]+$/.test(key)) out[key] = sanitizeRecord(value);
+  }
+  return out;
+}
+
+/** Records plus whether this build may write them back (false when a newer build owns the data). */
+function loadRecords(): { records: Record<string, RunRecord>; writable: boolean } {
+  const stored = readJson(KEY_RECORDS);
+  if (isEnvelope(stored)) {
+    return { records: sanitizeRecords(stored.data), writable: stored.version <= RECORDS_VERSION };
+  }
+  // Migrate v1: keep best times across all layouts; drop dailies, whose layouts the generator fix changed.
+  const legacy = sanitizeRecords(readJson(KEY_RECORDS_LEGACY));
+  const records: Record<string, RunRecord> = {};
+  for (const [key, value] of Object.entries(legacy)) {
+    if (key.startsWith('all:')) records[key] = value;
+  }
+  return { records, writable: true };
+}
+
+function saveRecords(records: Record<string, RunRecord>): void {
+  const cutoff = todayLabel(new Date(Date.now() - DAILY_RECORD_DAYS * 24 * 60 * 60 * 1000));
+  const kept: Record<string, RunRecord> = {};
+  for (const [key, value] of Object.entries(records)) {
+    const day = /^daily:(\d{4}-\d{2}-\d{2}):/.exec(key)?.[1];
+    if (!day || day >= cutoff) kept[key] = value;
+  }
+  writeJson(KEY_RECORDS, { version: RECORDS_VERSION, data: kept });
+}
+
 export function getRecord(difficulty: DifficultyMode, mode: RunMode, dateLabel = todayLabel()): RunRecord {
-  const all = readJson<Record<string, RunRecord>>(KEY_RECORDS) ?? {};
-  return all[recordKey(difficulty, mode, dateLabel)] ?? { bestTime: null, escapes: 0, deaths: 0 };
+  const { records } = loadRecords();
+  return records[recordKey(difficulty, mode, dateLabel)] ?? { bestTime: null, escapes: 0, deaths: 0 };
 }
 
 /**
@@ -124,12 +230,12 @@ export function recordRun(
   seconds: number,
   dateLabel = todayLabel(),
 ): { isNewBest: boolean; record: RunRecord } {
-  const all = readJson<Record<string, RunRecord>>(KEY_RECORDS) ?? {};
+  const { records, writable } = loadRecords();
   const keys = [recordKey(difficulty, 'random', dateLabel)];
   if (mode === 'daily') keys.push(recordKey(difficulty, 'daily', dateLabel));
   let isNewBest = false;
   for (const key of keys) {
-    const rec = all[key] ?? { bestTime: null, escapes: 0, deaths: 0 };
+    const rec = records[key] ?? { bestTime: null, escapes: 0, deaths: 0 };
     if (escaped) {
       rec.escapes++;
       if (rec.bestTime === null || seconds < rec.bestTime) {
@@ -139,8 +245,8 @@ export function recordRun(
     } else {
       rec.deaths++;
     }
-    all[key] = rec;
+    records[key] = rec;
   }
-  writeJson(KEY_RECORDS, all);
-  return { isNewBest, record: all[keys[keys.length - 1]] };
+  if (writable) saveRecords(records);
+  return { isNewBest, record: records[keys[keys.length - 1]] };
 }

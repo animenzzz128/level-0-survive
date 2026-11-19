@@ -51,6 +51,7 @@ function createNormalFromHeight(
   heightData: Float32Array,
   size: number,
   strength: number,
+  anisotropy: number,
 ): THREE.DataTexture {
   const data = new Uint8Array(size * size * 4);
   const idx = (x: number, y: number) => {
@@ -92,6 +93,12 @@ function createNormalFromHeight(
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
+  // DataTexture defaults to nearest filtering with no mipmaps: with the carpet tiled ~32 times the lighting
+  // detail sparkled and blocked up in motion. Filter and mip it like the colour maps.
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = anisotropy;
   tex.needsUpdate = true;
   return tex;
 }
@@ -228,7 +235,7 @@ function buildWallpaperTextures(anisotropy: number) {
 
   return {
     map: finalizeColorTex(albedo, anisotropy),
-    normalMap: createNormalFromHeight(height, size, 1.35),
+    normalMap: createNormalFromHeight(height, size, 1.35, anisotropy),
     roughnessMap: finalizeDataTex(roughCanvas, anisotropy),
   };
 }
@@ -290,7 +297,7 @@ function buildCarpetTextures(anisotropy: number) {
 
   return {
     map: finalizeColorTex(albedo, anisotropy),
-    normalMap: createNormalFromHeight(height, size, 1.8),
+    normalMap: createNormalFromHeight(height, size, 1.8, anisotropy),
     roughnessMap: finalizeDataTex(roughCanvas, anisotropy),
   };
 }
@@ -354,7 +361,7 @@ function buildCeilingTextures(anisotropy: number) {
 
   return {
     map: finalizeColorTex(albedo, anisotropy),
-    normalMap: createNormalFromHeight(height, size, 1.4),
+    normalMap: createNormalFromHeight(height, size, 1.4, anisotropy),
   };
 }
 
@@ -709,7 +716,7 @@ function buildHowlerSkinTextures(anisotropy: number) {
 
   return {
     map: finalizeColorTex(canvas, anisotropy, 2, 2),
-    normalMap: createNormalFromHeight(height, size, 2.2),
+    normalMap: createNormalFromHeight(height, size, 2.2, anisotropy),
   };
 }
 
@@ -759,7 +766,7 @@ function buildBruteSkinTextures(anisotropy: number) {
 
   return {
     map: finalizeColorTex(canvas, anisotropy, 1.5, 1.5),
-    normalMap: createNormalFromHeight(height, size, 1.75),
+    normalMap: createNormalFromHeight(height, size, 1.75, anisotropy),
   };
 }
 

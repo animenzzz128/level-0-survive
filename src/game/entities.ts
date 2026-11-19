@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HEADSHOT_MULTIPLIER } from './combat';
 import { EntityArchetype, EntityState } from './types';
 
 export interface EntityHitResult {
@@ -78,6 +79,15 @@ interface ArchetypeProfile {
   hearing: number;
   immune: boolean;
   fearsLight: boolean;
+}
+
+/** Max health for an archetype (Smilers are immune to bullets; their value is unused). */
+export function entityMaxHealth(archetype: EntityArchetype, nightmare: boolean): number {
+  return buildProfile(archetype, nightmare).maxHealth;
+}
+
+export function isBulletImmune(archetype: EntityArchetype): boolean {
+  return buildProfile(archetype, false).immune;
 }
 
 function buildProfile(archetype: EntityArchetype, nightmare: boolean): ArchetypeProfile {
@@ -785,7 +795,7 @@ export class BackroomsEntity {
       this.reveal();
       revealed = true;
     }
-    const finalDamage = Math.round(baseDamage * (isHead ? 1.85 : 1.0));
+    const finalDamage = Math.round(baseDamage * (isHead ? HEADSHOT_MULTIPLIER : 1.0));
     this.health = Math.max(0, this.health - finalDamage);
     this.hitFlashTimer = 0.07;
     if (!revealed) {

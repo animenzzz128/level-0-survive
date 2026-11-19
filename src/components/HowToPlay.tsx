@@ -62,6 +62,12 @@ export const HowToPlay: React.FC<HowToPlayProps> = ({ onClose }) => (
     role="dialog"
     aria-modal="true"
     aria-labelledby="howto-title"
+    onKeyDown={(e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    }}
   >
     <div className="max-h-full w-full max-w-3xl overflow-y-auto border border-[#d4be74]/30 bg-[#12100a] p-6 md:p-8">
       <div className="font-mono-hud text-xs tracking-wider text-[#d4be74]">FIELD NOTES · READ BEFORE ENTERING</div>
