@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // GitHub Pages serves the game from /level-0-survive/; the deploy workflow sets BASE_PATH.
+    base: process.env.BASE_PATH || '/',
     plugins: [
       react(),
       tailwindcss(),
