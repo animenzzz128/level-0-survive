@@ -1,4 +1,5 @@
 import React from 'react';
+import { ENTITY_GUIDE } from '../game/entityGuide';
 
 interface HowToPlayProps {
   onClose: () => void;
@@ -24,23 +25,7 @@ const SECTIONS: Array<{ title: string; items: string[] }> = [
   },
 ];
 
-const ENTITIES: Array<{ name: string; tell: string; counter: string }> = [
-  {
-    name: 'Bacteria Howler',
-    tell: 'Tall, fast, nearly blind. Clicks while it hunts.',
-    counter: 'It hunts by sound. Stop sprinting and put a door between you.',
-  },
-  {
-    name: 'Smiler',
-    tell: 'A grin in the dark. Sees far when your light is off.',
-    counter: 'Bullets pass through it. Hold your beam on its face to banish it.',
-  },
-  {
-    name: 'Skin-Stealer',
-    tell: 'Hides as a bottle of Almond Water.',
-    counter: 'Real bottles slowly spin. A still one is not water. Slow, but hits hard.',
-  },
-];
+const ENTITIES = [ENTITY_GUIDE.howler, ENTITY_GUIDE.smiler, ENTITY_GUIDE.brute];
 
 const CONTROLS: Array<[string, string]> = [
   ['WASD', 'Move'],

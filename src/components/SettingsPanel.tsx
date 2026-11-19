@@ -1,4 +1,5 @@
 import React from 'react';
+import { horizontalFov } from '../game/aim';
 import { GameSettings, QualityLevel, SETTINGS_LIMITS } from '../game/storage';
 
 interface SettingsPanelProps {
@@ -127,12 +128,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             onChange={(v) => set('volume', v / 100)}
           />
           <Slider
-            label="Field of view"
+            label="Field of view (vertical)"
             value={settings.fov}
             min={SETTINGS_LIMITS.fov.min}
             max={SETTINGS_LIMITS.fov.max}
             step={1}
-            display={`${settings.fov}°`}
+            display={`${settings.fov}° · ${Math.round(horizontalFov(settings.fov))}° horizontal at 16:9`}
             onChange={(v) => set('fov', v)}
           />
 
@@ -153,6 +154,29 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </select>
             <span className="text-xs text-[#8a805f]">{QUALITY_HINTS[effectiveQuality]}</span>
           </div>
+
+          <h3 className="mt-1 font-mono-hud text-xs tracking-wider text-[#e8b838]">COMFORT</h3>
+          <Slider
+            label="Screen shake"
+            value={Math.round(settings.shakeStrength * 100)}
+            min={0}
+            max={100}
+            step={5}
+            display={`${Math.round(settings.shakeStrength * 100)}%`}
+            onChange={(v) => set('shakeStrength', v / 100)}
+          />
+          <Toggle
+            label="Reduce motion"
+            hint="No head bob and no camera roll."
+            checked={settings.reduceMotion}
+            onChange={(v) => set('reduceMotion', v)}
+          />
+          <Toggle
+            label="Reduce flashing"
+            hint="Smooth light flicker, no flashlight stutter or muzzle light, softer damage flash."
+            checked={settings.reduceFlashing}
+            onChange={(v) => set('reduceFlashing', v)}
+          />
 
           <Toggle
             label="New-player tips"

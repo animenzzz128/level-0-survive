@@ -1,7 +1,7 @@
 import type { EntityVoice } from './entities';
 import type { EntityArchetype } from './types';
 
-export type WorldSound = 'door_open' | 'door_close' | 'door_bash' | 'door_break';
+export type WorldSound = 'door_open' | 'door_close' | 'door_bash' | 'door_break' | 'claw';
 
 function placePanner(panner: PannerNode, x: number, y: number, z: number): void {
   if (panner.positionX) {
@@ -183,6 +183,15 @@ class SpatialVoice implements EntityVoice {
     }
   }
 
+  playWindup(archetype: EntityArchetype): void {
+    if (this.ctx.state === 'closed') return;
+    const now = this.ctx.currentTime;
+    // A short rising rasp: audible, directional warning that a blow lands in ~0.3 s.
+    const base = archetype === 'brute' ? 90 : archetype === 'smiler' ? 520 : 200;
+    this.tone(now, 0.32, 'sawtooth', base, base * 2.2, 0.55, archetype === 'smiler' ? 3000 : 1400);
+    this.noiseBurst(now, 0.3, 'bandpass', archetype === 'brute' ? 500 : 1400, 0.4, 1.5);
+  }
+
   playDeath(): void {
     if (this.ctx.state === 'closed') return;
     const now = this.ctx.currentTime;
@@ -220,6 +229,9 @@ export class HorrorAudioEngine {
   private readonly pendingCleanupTimers = new Set<number>();
   private threatLevel = 0;
   private heartbeatTimer = 0;
+  /** 0 = healthy, 1 = nearly dead: drives a laboured-breathing layer (a warning that is not colour-only). */
+  private lowHealth = 0;
+  private breathTimer = 0;
   private muted = false;
   private volume = 0.8;
   private started = false;
@@ -563,6 +575,11 @@ export class HorrorAudioEngine {
         noise(now + 0.34, 0.12, 'lowpass', 260, 0.9);
         noise(now + 0.36, 0.03, 'bandpass', 2200, 0.5);
       }
+    } else if (kind === 'claw') {
+      // Tearing swipe at the attacker's position, so a hit from behind sounds like it came from behind.
+      noise(now, 0.16, 'bandpass', 2400, 1.1);
+      noise(now + 0.03, 0.12, 'highpass', 4000, 0.6);
+      tone(now, 0.18, 'sine', 140, 55, 0.9);
     } else if (kind === 'door_bash') {
       tone(now, 0.22, 'sine', 80, 40, 1.0);
       noise(now, 0.2, 'lowpass', 400, 1.0);
@@ -601,6 +618,85 @@ export class HorrorAudioEngine {
     } else {
       this.heartbeatTimer = 0.1;
     }
+
+    if (isPlaying && this.lowHealth > 0) {
+      this.breathTimer -= delta;
+      if (this.breathTimer <= 0) {
+        this.breathTimer = 2.4 - this.lowHealth;
+        this.playBreath(this.lowHealth);
+      }
+    } else {
+      this.breathTimer = 0.5;
+    }
+  }
+
+  public setLowHealth(level: number): void {
+    this.lowHealth = Math.min(1, Math.max(0, level));
+  }
+
+  private playBreath(level: number): void {
+    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    // Ragged in-breath then out-breath: band-passed noise with slow envelopes.
+    for (const [offset, freq, length] of [
+      [0, 950, 0.55],
+      [0.7, 700, 0.75],
+    ] as const) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = freq;
+      band.Q.value = 1.2;
+      const g = ctx.createGain();
+      const peak = 0.05 + 0.12 * level;
+      g.gain.setValueAtTime(0.0001, now + offset);
+      g.gain.linearRampToValueAtTime(peak, now + offset + length * 0.45);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + offset + length);
+      src.connect(band);
+      band.connect(g);
+      g.connect(this.dryGain);
+      src.start(now + offset, Math.random() * 1.2, length + 0.05);
+    }
+  }
+
+  /** Low falling sweep and a swell of static when the run ends in death. */
+  public playDeathSting(): void {
+    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(32, now + 1.8);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1400, now);
+    lp.frequency.exponentialRampToValueAtTime(120, now + 1.8);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.45, now + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 2.0);
+    osc.connect(lp);
+    lp.connect(g);
+    g.connect(this.dryGain);
+    g.connect(this.reverbNode);
+    osc.start(now);
+    osc.stop(now + 2.05);
+    const hiss = ctx.createBufferSource();
+    hiss.buffer = this.noiseBuffer;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2200;
+    const hg = ctx.createGain();
+    hg.gain.setValueAtTime(0.0001, now);
+    hg.gain.linearRampToValueAtTime(0.18, now + 0.6);
+    hg.gain.exponentialRampToValueAtTime(0.0001, now + 1.9);
+    hiss.connect(hp);
+    hp.connect(hg);
+    hg.connect(this.dryGain);
+    hiss.start(now, 0, 1.95);
   }
 
   private playHeartbeat(volume: number): void {

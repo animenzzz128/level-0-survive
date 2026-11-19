@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Volume2, VolumeX, Flashlight, Crosshair } from 'lucide-react';
 import { DifficultyMode, HudState } from '../game/types';
 import { RunMode } from '../game/storage';
+import { ENTITY_GUIDE } from '../game/entityGuide';
 
 export interface RunSummary {
   mode: RunMode;
@@ -9,6 +10,8 @@ export interface RunSummary {
   /** Best escape time for this difficulty (daily: for today's layout). */
   bestTime: number | null;
   isNewBest: boolean;
+  escapes: number;
+  deaths: number;
 }
 
 interface GameHudProps {
@@ -105,14 +108,39 @@ export const GameHud: React.FC<GameHudProps> = ({
         }}
       />
 
-      {/* Red damage vignette */}
+      {/* Low vitality: a slow pulsing edge (static with Reduce flashing), so the warning is not just a red number */}
+      {hud.phase === 'playing' && hud.health <= 35 && (
+        <div
+          className={`pointer-events-none absolute inset-0 ${hud.reduceFlashing ? '' : 'animate-pulse'}`}
+          style={{
+            opacity: 0.25 + ((35 - hud.health) / 35) * 0.35,
+            background:
+              'radial-gradient(circle at center, rgba(120,10,10,0) 50%, rgba(120,10,10,0.75) 100%)',
+          }}
+        />
+      )}
+
+      {/* Damage flash, kept soft: the directional wedge says where the hit came from */}
       {hud.damageFlash > 0.02 && (
         <div
           className="pointer-events-none absolute inset-0"
           style={{
-            opacity: hud.damageFlash * 0.65,
+            opacity: Math.min(hud.reduceFlashing ? 0.3 : 1, hud.damageFlash * 0.35),
             background:
               'radial-gradient(circle at center, rgba(160,18,18,0) 35%, rgba(160,18,18,0.85) 100%)',
+          }}
+        />
+      )}
+
+      {/* Hit direction: a red wedge on the screen edge facing the attacker (0deg = ahead, clockwise) */}
+      {hud.phase === 'playing' && hud.damageDirectionDeg !== null && hud.damageDirectionAlpha > 0.02 && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            opacity: hud.damageDirectionAlpha,
+            background: `conic-gradient(from ${hud.damageDirectionDeg - 30}deg at 50% 50%, rgba(190,24,24,0.9) 0deg 60deg, rgba(0,0,0,0) 60deg 360deg)`,
+            WebkitMaskImage: 'radial-gradient(circle at center, transparent 42%, black 80%)',
+            maskImage: 'radial-gradient(circle at center, transparent 42%, black 80%)',
           }}
         />
       )}
@@ -677,6 +705,15 @@ export const GameHud: React.FC<GameHudProps> = ({
                 : 'The fluorescent hum fades beneath damp carpet. Your recorder stopped transmitting.'}
             </p>
 
+            {hud.phase === 'gameover' && hud.killedBy && (
+              <div className="mt-4 border-l-2 border-[#f87171] bg-[#1a0f0f] px-4 py-3">
+                <div className="font-mono-hud text-[11px] tracking-wider text-[#f87171]">
+                  TAKEN BY THE {ENTITY_GUIDE[hud.killedBy].name.toUpperCase()}
+                </div>
+                <div className="mt-1 text-sm text-[#ebe3c5]">{ENTITY_GUIDE[hud.killedBy].counter}</div>
+              </div>
+            )}
+
             <div className="mt-6 grid grid-cols-2 gap-3 border-y border-[#d4be74]/20 py-4 font-mono-hud text-xs">
               <div>
                 <div className="text-[#8a805f]">Survival Time</div>
@@ -715,6 +752,11 @@ export const GameHud: React.FC<GameHudProps> = ({
                 ) : (
                   <>
                     Best escape: <span className="text-[#f5efe0]">{formatBest(summary?.bestTime ?? null)}</span>
+                    {summary && (
+                      <span className="ml-2 text-[#8a805f]">
+                        · {summary.escapes} escaped · {summary.deaths} lost
+                      </span>
+                    )}
                   </>
                 )}
               </span>

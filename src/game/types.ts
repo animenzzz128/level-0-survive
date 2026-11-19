@@ -66,6 +66,12 @@ export interface HudState {
   shotsHit: number;
   damageTaken: number;
   damageFlash: number;
+  /** Direction of the last blow relative to the view (0 ahead, +90 right, +-180 behind); null when faded. */
+  damageDirectionDeg: number | null;
+  damageDirectionAlpha: number;
+  /** What ended the run (results screen). */
+  killedBy: EntityArchetype | null;
+  reduceFlashing: boolean;
   hitmarkerState: 'none' | 'hit' | 'head' | 'kill' | 'immune';
   crosshairSpread: number;
   pointerLocked: boolean;
