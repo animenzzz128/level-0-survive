@@ -1,0 +1,93 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2340 760' width='2340' height='760' font-family='Noto Sans SC, Microsoft YaHei, PingFang SC, sans-serif'>
+<rect width='2340' height='760' fill='#efe6c4'/>
+<line x1='60' x2='2320' y1='660.0' y2='660.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='664.0' font-size='13' fill='#3b3626'>0.0 m</text>
+<line x1='60' x2='2320' y1='570.0' y2='570.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='574.0' font-size='13' fill='#3b3626'>0.5 m</text>
+<line x1='60' x2='2320' y1='480.0' y2='480.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='484.0' font-size='13' fill='#3b3626'>1.0 m</text>
+<line x1='60' x2='2320' y1='390.0' y2='390.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='394.0' font-size='13' fill='#3b3626'>1.5 m</text>
+<line x1='60' x2='2320' y1='300.0' y2='300.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='304.0' font-size='13' fill='#3b3626'>2.0 m</text>
+<line x1='60' x2='2320' y1='210.0' y2='210.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='214.0' font-size='13' fill='#3b3626'>2.5 m</text>
+<line x1='60' x2='2320' y1='120.0' y2='120.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='124.0' font-size='13' fill='#3b3626'>3.0 m</text>
+<line x1='60' x2='2320' y1='102.0' y2='102.0' stroke='#3b3626' stroke-width='1.5' stroke-dasharray='10 6'/>
+<text x='2080' y='96.0' font-size='13' fill='#3b3626'>吊顶 3.1 m（墙高）</text>
+<line x1='60' x2='2320' y1='357.6' y2='357.6' stroke='#2f6fb0' stroke-width='1.5' stroke-dasharray='6 5'/>
+<text x='2080' y='351.6' font-size='13' fill='#2f6fb0'>玩家眼高 1.68 m</text>
+<line x1='40' x2='2320' y1='660' y2='660' stroke='#3b3626' stroke-width='2.5'/>
+<text x='70' y='34' font-size='22' font-weight='700' fill='#3b3626'>道具与地标比例总览</text>
+<text x='70' y='58' font-size='14' fill='#3b3626'>全部正视、同一比例（来自代码尺寸）。门和出口门为门洞内视；吊顶灯盒为俯视。</text>
+<line x1='2110' x2='2290' y1='738' y2='738' stroke='#3b3626' stroke-width='3'/>
+<text x='2110' y='730' font-size='12' fill='#3b3626'>1 m = 180 px（1:1 游戏尺寸）</text>
+<rect x='80.0' y='606.0' width='36.0' height='54.0' fill='#8b8f8a' stroke='#3b3626' stroke-width='1.5' />
+<polygon points='80.0,606.0 116.0,606.0 106.1,593.4 89.9,593.4' fill='#8b8f8a' stroke='#3b3626' stroke-width='1.5'/>
+<rect x='90.8' y='584.4' width='14.4' height='9.0' fill='#b9bcb8' stroke='#3b3626' stroke-width='1.5' />
+<text x='98.0' y='570.0' font-size='12' fill='#3b3626' text-anchor='middle'>杏仁水 0.415 m</text>
+<rect x='170.0' y='650.1' width='64.8' height='9.9' fill='#1d1b16' stroke='#3b3626' stroke-width='1.5' />
+<text x='202.4' y='638.4' font-size='12' fill='#3b3626' text-anchor='middle'>录像带 0.36 × 0.055</text>
+<rect x='270.0' y='613.2' width='25.2' height='46.8' fill='none' stroke='#3b3626' stroke-width='1.5' stroke-dasharray='4 3'/>
+<rect x='276.0' y='627.6' width='18.0' height='32.4' fill='#1b1c1f' stroke='#3b3626' stroke-width='1.5' />
+<rect x='276.0' y='633.0' width='18.0' height='9.0' fill='#e8b838' stroke='#3b3626' stroke-width='1.5' />
+<text x='282.6' y='598.8' font-size='12' fill='#3b3626' text-anchor='middle'>电池 0.18（虚线=现 0.26）</text>
+<rect x='380.0' y='616.8' width='75.6' height='43.2' fill='#3b4730' stroke='#3b3626' stroke-width='1.5' />
+<rect x='378.0' y='607.8' width='79.2' height='9.0' fill='#3b4730' stroke='#3b3626' stroke-width='1.5' />
+<text x='417.8' y='591.6' font-size='12' fill='#3b3626' text-anchor='middle'>弹药箱 0.42 × 0.29</text>
+<rect x='530.0' y='519.6' width='207.0' height='9.9' fill='#756b52' stroke='#3b3626' stroke-width='1.5' />
+<rect x='539.0' y='529.5' width='9.0' height='130.5' fill='#5c5848' stroke='#3b3626' stroke-width='1.5' />
+<rect x='719.0' y='529.5' width='9.0' height='130.5' fill='#5c5848' stroke='#3b3626' stroke-width='1.5' />
+<text x='633.5' y='494.4' font-size='12' fill='#3b3626' text-anchor='middle'>办公桌 1.15 × 0.78（桌面 0.72 深）</text>
+<rect x='770.0' y='519.6' width='207.0' height='9.9' fill='#756b52' stroke='#3b3626' stroke-width='1.5' />
+<rect x='779.0' y='529.5' width='9.0' height='130.5' fill='#5c5848' stroke='#3b3626' stroke-width='1.5' />
+<rect x='959.0' y='529.5' width='9.0' height='130.5' fill='#5c5848' stroke='#3b3626' stroke-width='1.5' />
+<rect x='779.0' y='525.0' width='189.0' height='90.0' fill='#5c5848' stroke='#3b3626' stroke-width='1.5' opacity='0.85'/>
+<text x='873.5' y='494.4' font-size='12' fill='#3b3626' text-anchor='middle'>躲藏桌：加挡板 1.05 × 0.5</text>
+<rect x='1017.4' y='246.0' width='12.6' height='414.0' fill='#3b3e3a' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1264.0' y='246.0' width='12.6' height='414.0' fill='#3b3e3a' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1017.4' y='233.4' width='259.2' height='12.6' fill='#3b3e3a' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1037.2' y='253.2' width='219.6' height='406.8' fill='#c9b98e' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1037.2' y='615.0' width='219.6' height='45.0' fill='#a3a08d' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1224.4' y='471.0' width='22' height='6' fill='#3b3626'/>
+<circle cx='1034.0' cy='642.0' r='6' fill='#b83227'/>
+<text x='1147.0' y='219.0' font-size='12' fill='#3b3626' text-anchor='middle'>普通门：门洞 1.30 × 2.30，原点=铰链边（红点）</text>
+<rect x='1380.0' y='201.0' width='28.8' height='459.0' fill='#242622' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1711.2' y='201.0' width='28.8' height='459.0' fill='#242622' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1380.0' y='186.6' width='360.0' height='39.6' fill='#242622' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1408.8' y='228.0' width='302.4' height='432.0' fill='#3c403a' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1511.4' y='149.7' width='97.2' height='34.2' fill='#242622' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1520.4' y='156.9' width='79.2' height='19.8' fill='#c24339' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1326.0' y='386.4' width='32.4' height='50.4' fill='#242622' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1434.0' y='469.2' width='252.0' height='10.8' fill='#686d63' stroke='#3b3626' stroke-width='1.5' />
+<text x='1560.0' y='129.0' font-size='12' fill='#3b3626' text-anchor='middle'>出口门：框 2.0 × 2.55 · 门 1.68 × 2.4 · 信号灯 2.74 m</text>
+<rect x='1780.0' y='318.0' width='171.0' height='342.0' fill='#6e1c18' stroke='#3b3626' stroke-width='1.5' />
+<rect x='1794.4' y='337.8' width='111.6' height='207.0' fill='#8fe3ff' stroke='#3b3626' stroke-width='1.5' opacity='0.8'/>
+<rect x='1794.4' y='570.0' width='111.6' height='28.8' fill='#0d0d0d' stroke='#3b3626' stroke-width='1.5' />
+<text x='1865.5' y='296.4' font-size='12' fill='#3b3626' text-anchor='middle'>售货机 0.95 × 1.9 × 0.8</text>
+<rect x='2000.0' y='480.0' width='68.4' height='180.0' fill='#d9d5c6' stroke='#3b3626' stroke-width='1.5' />
+<rect x='2005.4' y='395.4' width='57.6' height='82.8' rx='12' fill='#4a8fd0' stroke='#3b3626' stroke-width='1.5' opacity='0.85'/>
+<text x='2034.2' y='375.6' font-size='12' fill='#3b3626' text-anchor='middle'>饮水机 1.47 m</text>
+<rect x='2120.0' y='530.4' width='144.0' height='129.6' fill='#3b3a35' stroke='#3b3626' stroke-width='1.5' />
+<rect x='2136.2' y='440.4' width='111.6' height='90.0' fill='#24221d' stroke='#3b3626' stroke-width='1.5' />
+<rect x='2150.6' y='454.8' width='82.8' height='61.2' fill='#7dffa8' stroke='#3b3626' stroke-width='1.5' opacity='0.75'/>
+<text x='2192.0' y='415.2' font-size='12' fill='#3b3626' text-anchor='middle'>电视推车 0.8 × 1.22</text>
+<rect x='2084.0' y='211.8' width='207.0' height='86.4' fill='#15120d' stroke='#3b3626' stroke-width='1.5' />
+<text x='2187.5' y='267.6' font-size='34' font-weight='700' fill='none' stroke='#ff3d9a' stroke-width='2.5' text-anchor='middle'>OPEN</text>
+<text x='2187.5' y='195.6' font-size='12' fill='#3b3626' text-anchor='middle'>霓虹灯牌 1.15 × 0.48，中心 2.25 m</text>
+<rect x='80' y='120' width='248.4' height='136.8' fill='#c8c2a6' stroke='#3b3626' stroke-width='1.5'/>
+<rect x='89.0' y='129.0' width='230.4' height='118.8' fill='#e8e4c8' stroke='#625e4f'/>
+<line x1='108.2' x2='108.2' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='127.4' x2='127.4' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='146.6' x2='146.6' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='165.8' x2='165.8' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='185.0' x2='185.0' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='204.2' x2='204.2' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='223.4' x2='223.4' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='242.6' x2='242.6' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='261.8' x2='261.8' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='281.0' x2='281.0' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<line x1='300.2' x2='300.2' y1='129.0' y2='247.8' stroke='#c9c3a2' stroke-width='1'/>
+<text x='204.2' y='274.8' font-size='12' fill='#3b3626' text-anchor='middle'>吊顶灯盒（俯视）0.76 × 1.38，发光面 0.66 × 1.28</text>
+</svg>
