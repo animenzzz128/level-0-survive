@@ -1,3 +1,200 @@
+import type { EntityVoice } from './entities';
+import type { EntityArchetype } from './types';
+
+export type WorldSound = 'door_open' | 'door_close' | 'door_bash' | 'door_break';
+
+function placePanner(panner: PannerNode, x: number, y: number, z: number): void {
+  if (panner.positionX) {
+    panner.positionX.value = x;
+    panner.positionY.value = y;
+    panner.positionZ.value = z;
+  } else {
+    panner.setPosition(x, y, z);
+  }
+}
+
+function createWorldPanner(ctx: AudioContext): PannerNode {
+  const panner = ctx.createPanner();
+  panner.panningModel = 'HRTF';
+  panner.distanceModel = 'inverse';
+  panner.refDistance = 1.6;
+  panner.maxDistance = 40;
+  panner.rolloffFactor = 1.3;
+  return panner;
+}
+
+/** HRTF-positioned sound source that follows one entity; muffled when a wall is in the way. */
+class SpatialVoice implements EntityVoice {
+  private readonly input: GainNode;
+  private readonly occlusion: BiquadFilterNode;
+  private readonly panner: PannerNode;
+  private readonly reverbSend: GainNode;
+
+  constructor(
+    private readonly ctx: AudioContext,
+    dry: AudioNode,
+    reverb: AudioNode,
+    private readonly noise: AudioBuffer,
+  ) {
+    this.input = ctx.createGain();
+    this.occlusion = ctx.createBiquadFilter();
+    this.occlusion.type = 'lowpass';
+    this.occlusion.frequency.value = 9000;
+    this.panner = createWorldPanner(ctx);
+    this.reverbSend = ctx.createGain();
+    this.reverbSend.gain.value = 0.5;
+    this.input.connect(this.occlusion);
+    this.occlusion.connect(this.panner);
+    this.panner.connect(dry);
+    this.panner.connect(this.reverbSend);
+    this.reverbSend.connect(reverb);
+  }
+
+  setPosition(x: number, y: number, z: number): void {
+    placePanner(this.panner, x, y, z);
+  }
+
+  setOccluded(occluded: boolean): void {
+    this.occlusion.frequency.setTargetAtTime(occluded ? 650 : 9000, this.ctx.currentTime, 0.08);
+  }
+
+  private noiseBurst(
+    start: number,
+    duration: number,
+    type: BiquadFilterType,
+    freq: number,
+    peak: number,
+    q = 0.8,
+  ): void {
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(peak, start + Math.min(0.02, duration * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(this.input);
+    src.start(start, Math.random() * 1.2, duration + 0.05);
+  }
+
+  private tone(
+    start: number,
+    duration: number,
+    type: OscillatorType,
+    fromHz: number,
+    toHz: number,
+    peak: number,
+    lowpass = 2000,
+  ): void {
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(fromHz, start);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, toHz), start + duration);
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = lowpass;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(peak, start + Math.min(0.04, duration * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(this.input);
+    osc.start(start);
+    osc.stop(start + duration + 0.05);
+  }
+
+  playStep(heavy: boolean): void {
+    const now = this.ctx.currentTime;
+    this.noiseBurst(now, heavy ? 0.16 : 0.1, 'lowpass', heavy ? 170 : 260, heavy ? 0.9 : 0.55);
+    if (heavy) this.tone(now, 0.18, 'sine', 70, 38, 0.6, 400);
+  }
+
+  playScreech(archetype: EntityArchetype): void {
+    const now = this.ctx.currentTime;
+    if (archetype === 'howler') {
+      // Ragged, warbling shriek
+      const osc = this.ctx.createOscillator();
+      const mod = this.ctx.createOscillator();
+      const modGain = this.ctx.createGain();
+      const band = this.ctx.createBiquadFilter();
+      const g = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(380, now);
+      osc.frequency.linearRampToValueAtTime(190, now + 0.55);
+      mod.type = 'square';
+      mod.frequency.value = 37;
+      modGain.gain.value = 120;
+      band.type = 'bandpass';
+      band.frequency.value = 900;
+      band.Q.value = 2.2;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.linearRampToValueAtTime(0.9, now + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+      mod.connect(modGain);
+      modGain.connect(osc.frequency);
+      osc.connect(band);
+      band.connect(g);
+      g.connect(this.input);
+      osc.start(now);
+      mod.start(now);
+      osc.stop(now + 0.65);
+      mod.stop(now + 0.65);
+    } else if (archetype === 'smiler') {
+      // Thin, detuned chord that rises like a held breath
+      for (const [f, d] of [
+        [880, 1.0],
+        [932, 1.02],
+        [1318, 0.98],
+      ] as const) {
+        this.tone(now, 0.9, 'sine', f * 0.9, f * d * 1.08, 0.22, 4000);
+      }
+      this.noiseBurst(now, 0.7, 'bandpass', 2600, 0.25, 3);
+    } else {
+      // Wet, low bellow
+      this.tone(now, 0.75, 'sawtooth', 210, 85, 0.85, 700);
+      this.noiseBurst(now, 0.6, 'lowpass', 500, 0.5);
+    }
+  }
+
+  playIdle(archetype: EntityArchetype): void {
+    const now = this.ctx.currentTime;
+    if (archetype === 'howler') {
+      // Clicking echolocation chirps
+      for (let i = 0; i < 3; i++) {
+        this.noiseBurst(now + i * 0.11, 0.035, 'bandpass', 2600 + Math.random() * 600, 0.7, 6);
+      }
+    } else if (archetype === 'smiler') {
+      // Breathy whisper
+      this.noiseBurst(now, 1.1, 'bandpass', 1300 + Math.random() * 300, 0.35, 2.5);
+    } else {
+      // Low, wet groan
+      this.tone(now, 0.9, 'sawtooth', 78, 56, 0.4, 320);
+    }
+  }
+
+  playDeath(): void {
+    const now = this.ctx.currentTime;
+    this.tone(now, 0.7, 'sawtooth', 320, 40, 0.6, 1200);
+    this.noiseBurst(now, 0.5, 'highpass', 3000, 0.45);
+    for (let i = 0; i < 5; i++) {
+      this.noiseBurst(now + 0.1 + i * 0.09, 0.03, 'bandpass', 4000, 0.4, 4);
+    }
+  }
+
+  dispose(): void {
+    this.input.disconnect();
+    this.occlusion.disconnect();
+    this.panner.disconnect();
+    this.reverbSend.disconnect();
+  }
+}
+
 export class HorrorAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -7,6 +204,9 @@ export class HorrorAudioEngine {
   private humOsc1: OscillatorNode | null = null;
   private humOsc2: OscillatorNode | null = null;
   private humGain: GainNode | null = null;
+  private droneOsc: OscillatorNode | null = null;
+  private droneGain: GainNode | null = null;
+  private threatLevel = 0;
   private heartbeatTimer = 0;
   private muted = false;
   private started = false;
@@ -120,14 +320,127 @@ export class HorrorAudioEngine {
 
     this.humOsc1.start();
     this.humOsc2.start();
+
+    // Sub-bass dread drone that swells as the threat director escalates
+    this.droneGain = this.ctx.createGain();
+    this.droneGain.gain.value = 0;
+    this.droneOsc = this.ctx.createOscillator();
+    this.droneOsc.type = 'sine';
+    this.droneOsc.frequency.setValueAtTime(41, now);
+    const droneWobble = this.ctx.createOscillator();
+    const droneWobbleGain = this.ctx.createGain();
+    droneWobble.frequency.value = 0.13;
+    droneWobbleGain.gain.value = 1.6;
+    droneWobble.connect(droneWobbleGain);
+    droneWobbleGain.connect(this.droneOsc.frequency);
+    this.droneOsc.connect(this.droneGain);
+    this.droneGain.connect(this.dryGain);
+    this.droneOsc.start();
+    droneWobble.start();
+  }
+
+  /** 0 at start, +1 per recovered tape: louder, harsher hum and a rising sub-bass drone. */
+  public setThreatLevel(level: number): void {
+    this.threatLevel = level;
+  }
+
+  /** Keep the Web Audio listener on the camera so entity voices pan and attenuate correctly. */
+  public updateListener(x: number, y: number, z: number, fx: number, fy: number, fz: number): void {
+    if (!this.ctx) return;
+    const l = this.ctx.listener;
+    if (l.positionX) {
+      l.positionX.value = x;
+      l.positionY.value = y;
+      l.positionZ.value = z;
+      l.forwardX.value = fx;
+      l.forwardY.value = fy;
+      l.forwardZ.value = fz;
+      l.upX.value = 0;
+      l.upY.value = 1;
+      l.upZ.value = 0;
+    } else {
+      l.setPosition(x, y, z);
+      l.setOrientation(fx, fy, fz, 0, 1, 0);
+    }
+  }
+
+  /** A positional voice for one entity, or null until audio has been unlocked by a user gesture. */
+  public createVoice(): EntityVoice | null {
+    if (!this.ctx || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return null;
+    return new SpatialVoice(this.ctx, this.dryGain, this.reverbNode, this.noiseBuffer);
+  }
+
+  /** One-shot positional sound for level objects (doors). */
+  public playAt(kind: WorldSound, x: number, y: number, z: number): void {
+    if (!this.ctx || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const panner = createWorldPanner(ctx);
+    placePanner(panner, x, y, z);
+    panner.connect(this.dryGain);
+    panner.connect(this.reverbNode);
+    let lastEnd = now;
+
+    const noise = (start: number, dur: number, type: BiquadFilterType, freq: number, peak: number) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(peak, start);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      src.connect(f);
+      f.connect(g);
+      g.connect(panner);
+      src.start(start, Math.random(), dur + 0.05);
+      lastEnd = Math.max(lastEnd, start + dur);
+    };
+    const tone = (start: number, dur: number, type: OscillatorType, from: number, to: number, peak: number) => {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(from, start);
+      osc.frequency.exponentialRampToValueAtTime(to, start + dur);
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = (from + to) * 0.8;
+      f.Q.value = 1.4;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.linearRampToValueAtTime(peak, start + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      osc.connect(f);
+      f.connect(g);
+      g.connect(panner);
+      osc.start(start);
+      osc.stop(start + dur + 0.05);
+      lastEnd = Math.max(lastEnd, start + dur);
+    };
+
+    if (kind === 'door_open' || kind === 'door_close') {
+      tone(now, 0.38, 'sawtooth', kind === 'door_open' ? 120 : 150, kind === 'door_open' ? 165 : 92, 0.35);
+      if (kind === 'door_close') {
+        noise(now + 0.34, 0.12, 'lowpass', 260, 0.9);
+        noise(now + 0.36, 0.03, 'bandpass', 2200, 0.5);
+      }
+    } else if (kind === 'door_bash') {
+      tone(now, 0.22, 'sine', 80, 40, 1.0);
+      noise(now, 0.2, 'lowpass', 400, 1.0);
+    } else {
+      noise(now, 0.7, 'lowpass', 900, 1.2);
+      noise(now, 0.4, 'highpass', 2500, 0.6);
+      tone(now, 0.5, 'sine', 60, 30, 1.0);
+    }
+    window.setTimeout(() => panner.disconnect(), (lastEnd - now + 0.3) * 1000);
   }
 
   public updateAmbient(delta: number, nearestEntityDist: number, isPlaying: boolean): void {
     if (!this.ctx || !this.humGain || !this.started) return;
     const now = this.ctx.currentTime;
 
-    const targetHum = isPlaying ? 0.06 : 0.03;
+    const targetHum = isPlaying ? 0.06 + this.threatLevel * 0.012 : 0.03;
     this.humGain.gain.setTargetAtTime(targetHum, now, 0.12);
+    this.droneGain?.gain.setTargetAtTime(isPlaying ? this.threatLevel * 0.035 : 0, now, 1.5);
 
     if (isPlaying && nearestEntityDist < 13) {
       const proximity = Math.max(0, 1 - nearestEntityDist / 13);
@@ -275,58 +588,22 @@ export class HorrorAudioEngine {
     src.start(now, Math.random() * 0.5, 0.1);
   }
 
-  public playHitmarker(kill: boolean): void {
+  /** 'immune' is a dull, wrong-sounding thunk for bullets passing through a Smiler. */
+  public playHitmarker(kind: 'hit' | 'kill' | 'immune'): void {
     if (!this.ctx || !this.dryGain) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(kill ? 1480 : 1080, now);
-    osc.frequency.exponentialRampToValueAtTime(kill ? 720 : 640, now + 0.06);
+    osc.type = kind === 'immune' ? 'triangle' : 'sine';
+    const [from, to] = kind === 'kill' ? [1480, 720] : kind === 'hit' ? [1080, 640] : [260, 120];
+    osc.frequency.setValueAtTime(from, now);
+    osc.frequency.exponentialRampToValueAtTime(to, now + 0.06);
     g.gain.setValueAtTime(0.18, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
     osc.connect(g);
     g.connect(this.dryGain);
     osc.start(now);
     osc.stop(now + 0.08);
-  }
-
-  public playEntityScreech(intensity = 0.35): void {
-    if (!this.ctx || !this.reverbNode || !this.dryGain) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const mod = this.ctx.createOscillator();
-    const modGain = this.ctx.createGain();
-    const filter = this.ctx.createBiquadFilter();
-    const g = this.ctx.createGain();
-
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(340, now);
-    osc.frequency.linearRampToValueAtTime(195, now + 0.42);
-
-    mod.type = 'square';
-    mod.frequency.value = 37;
-    modGain.gain.value = 110;
-
-    filter.type = 'bandpass';
-    filter.frequency.value = 820;
-    filter.Q.value = 2.2;
-
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(intensity, now + 0.04);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
-
-    mod.connect(modGain);
-    modGain.connect(osc.frequency);
-    osc.connect(filter);
-    filter.connect(g);
-    g.connect(this.dryGain);
-    g.connect(this.reverbNode);
-
-    osc.start(now);
-    mod.start(now);
-    osc.stop(now + 0.5);
-    mod.stop(now + 0.5);
   }
 
   public playPlayerHurt(): void {
@@ -349,11 +626,17 @@ export class HorrorAudioEngine {
     src.start(now, 0, 0.28);
   }
 
-  public playPickup(kind: 'tape' | 'ammo' | 'almond_water'): void {
+  public playPickup(kind: 'tape' | 'ammo' | 'almond_water' | 'battery'): void {
     if (!this.ctx || !this.dryGain) return;
     const now = this.ctx.currentTime;
     const notes =
-      kind === 'tape' ? [523.25, 659.25, 783.99] : kind === 'almond_water' ? [440, 554.37] : [330, 440];
+      kind === 'tape'
+        ? [523.25, 659.25, 783.99]
+        : kind === 'almond_water'
+          ? [440, 554.37]
+          : kind === 'battery'
+            ? [392, 587.33]
+            : [330, 440];
     notes.forEach((freq, idx) => {
       const osc = this.ctx!.createOscillator();
       const g = this.ctx!.createGain();
@@ -401,6 +684,13 @@ export class HorrorAudioEngine {
     if (this.humOsc2) {
       try {
         this.humOsc2.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (this.droneOsc) {
+      try {
+        this.droneOsc.stop();
       } catch {
         /* ignore */
       }

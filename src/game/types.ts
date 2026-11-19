@@ -4,7 +4,18 @@ export type DifficultyMode = 'standard' | 'nightmare';
 
 export type EntityArchetype = 'howler' | 'smiler' | 'brute';
 
-export type PickupKind = 'tape' | 'ammo' | 'almond_water';
+export type PickupKind = 'tape' | 'ammo' | 'almond_water' | 'battery';
+
+export type EntityState =
+  | 'patrol'
+  | 'investigate'
+  | 'chase'
+  | 'search'
+  | 'stagger'
+  | 'retreat'
+  | 'disguised'
+  | 'dying'
+  | 'removed';
 
 export interface HudNotification {
   id: number;
@@ -38,9 +49,16 @@ export interface HudState {
   shotsHit: number;
   damageTaken: number;
   damageFlash: number;
-  hitmarkerState: 'none' | 'hit' | 'kill';
+  hitmarkerState: 'none' | 'hit' | 'kill' | 'immune';
   crosshairSpread: number;
   pointerLocked: boolean;
+  /** Pointer lock was refused and has never worked in this page (e.g. sandboxed iframe). */
+  pointerLockBlocked: boolean;
+  crouched: boolean;
+  /** Crouched under a desk: entities cannot see the player unless right next to them. */
+  hidden: boolean;
+  /** Director escalation level, 0 at start, +1 per recovered tape. */
+  threatLevel: number;
   muted: boolean;
   notification: HudNotification | null;
   interactPrompt: string | null;
