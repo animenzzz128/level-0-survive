@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HEADSHOT_MULTIPLIER } from './combat';
+import { mergeStaticMeshes } from './meshMerge';
 import { EntityArchetype, EntityState } from './types';
 
 export interface EntityHitResult {
@@ -167,6 +168,8 @@ const WINDUP_REACH = ATTACK_RANGE * 1.2;
 const STAGGER_COOLDOWN = 0.7;
 const HIT_FREEZE = 0.05;
 const KILL_FREEZE = 0.1;
+/** Parts smaller than this (bounding radius, m) do not cast shadows: they are invisible in them anyway. */
+const SHADOW_CASTER_MIN_RADIUS = 0.12;
 
 export class BackroomsEntity {
   public readonly id: number;
@@ -303,6 +306,12 @@ export class BackroomsEntity {
       this.buildBruteMesh(textures.softShadowTex);
     }
 
+    // Fewer draw calls (performance C3): join each rig piece's static parts per material, and let only large lit
+    // parts cast shadows (teeth, claws, eyes and even the contact-shadow decal used to cast one each).
+    const keep = new Set<THREE.Object3D>([this.contactShadow, ...this.bodyHitMeshes]);
+    if (this.smilerFaceMesh) keep.add(this.smilerFaceMesh);
+    mergeStaticMeshes(this.group, keep);
+    if (archetype !== 'smiler') this.configureShadows();
     this.bodyParts.push(...this.group.children);
     if (archetype === 'brute') this.buildDisguise(textures.softShadowTex);
 
@@ -310,6 +319,18 @@ export class BackroomsEntity {
     this.patrolTarget.copy(this.position);
     this.lastProgressPos.copy(this.position);
     if (disguised) this.disguise();
+  }
+
+  private configureShadows(): void {
+    this.group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh || mesh === this.contactShadow || this.bodyHitMeshes.includes(mesh)) return;
+      const lit = !(mesh.material as THREE.MeshBasicMaterial).isMeshBasicMaterial;
+      if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+      const radius = mesh.geometry.boundingSphere?.radius ?? 0;
+      mesh.castShadow = lit && radius >= SHADOW_CASTER_MIN_RADIUS;
+      mesh.receiveShadow = lit;
+    });
   }
 
   private addContactShadow(radius: number, softShadowTex: THREE.CanvasTexture): void {
@@ -476,13 +497,6 @@ export class BackroomsEntity {
     this.torsoRef.add(this.leftArmRef, this.rightArmRef);
     this.group.add(this.leftLegRef, this.rightLegRef, this.torsoRef);
 
-    this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-      }
-    });
-
     // Body box spans 0.275–1.91 so its top meets the head box (1.91–2.39) with no unhittable gap.
     this.addHitbox(0.7, 1.635, 0.65, 1.0925, false);
     this.addHitbox(0.45, 0.48, 0.45, 2.15, true);
@@ -641,13 +655,6 @@ export class BackroomsEntity {
 
     this.torsoRef.add(this.leftArmRef, this.rightArmRef);
     this.group.add(this.leftLegRef, this.rightLegRef, this.torsoRef);
-
-    this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.castShadow = true;
-        obj.receiveShadow = true;
-      }
-    });
 
     // Body box spans 0.3–1.77 so its top meets the head box (1.77–2.27) with no unhittable gap.
     this.addHitbox(0.95, 1.47, 0.75, 1.035, false);
