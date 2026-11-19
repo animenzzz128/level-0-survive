@@ -83,7 +83,7 @@ const RULES: TipRule[] = [
     id: 'winded',
     priority: 2,
     title: 'Out of breath',
-    text: 'You cannot sprint again until stamina recovers to 35%. Plan your runs.',
+    text: 'You cannot sprint until you catch your breath. Let go of Shift to recover sooner.',
     when: (c) => c.winded,
   },
   {

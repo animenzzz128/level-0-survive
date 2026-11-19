@@ -41,6 +41,9 @@ const TAPE_LOGS = [
   'If you are hearing this, the door is open, and they know. Do not stop for the water. Not all of it is water.',
 ];
 const TAPE_LOG_CPS = 40;
+// Stamina % at which a winded player may sprint again (still holding Shift / after releasing it)
+const WINDED_RECOVER_HOLDING = 18;
+const WINDED_RECOVER_RELEASED = 6;
 
 interface PickupInstance {
   id: number;
@@ -107,6 +110,7 @@ const _vec3A = new THREE.Vector3();
 const _vec3B = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _screenCenter = new THREE.Vector2(0, 0);
 
 export class BackroomsEngine {
   private readonly container: HTMLElement;
@@ -239,11 +243,10 @@ export class BackroomsEngine {
 
   private readonly entityWorld: EntityWorld = {
     lineOfSight: (a, b) => this.lineOfSight(a, b),
-    nextStepToward: (from, to) =>
+    nextStepToward: (from, to, allowClosedDoors = true) =>
       findNextStepToward(from, to, this.navGrid) ??
-      // No way around a closed door: head straight for it (and batter it open).
-      findNextStepToward(from, to, this.level.grid) ??
-      to.clone(),
+      // Engaged entities with no way around a closed door head straight for it (and batter it open).
+      (allowClosedDoors ? findNextStepToward(from, to, this.level.grid) : null),
     resolveCollision: (pos, radius) =>
       resolveCircleWallCollision(pos, radius, this.level.grid, this.level.pillars, this.colliders),
     randomPointNear: (center, radiusCells) => this.randomWalkableNear(center, radiusCells),
@@ -253,7 +256,12 @@ export class BackroomsEngine {
   private readonly entityHooks: EntityHooks = {
     onAttack: (_entity, damage) => this.damagePlayer(damage),
     onScreech: (entity) => entity.voice?.playScreech(entity.archetype),
-    onRemoved: (entity) => this.director.entityRemoved(entity),
+    onRemoved: (entity, reason) => {
+      this.director.entityRemoved(entity);
+      if (reason === 'banished') {
+        this.pushNotification(`${entity.label} banished by the beam. It will return.`, 'info');
+      }
+    },
   };
 
   private readonly directorActions: DirectorActions = {
@@ -263,13 +271,18 @@ export class BackroomsEngine {
     },
     respawnEntity: (entity, x, z, disguised) => entity.respawn(x, z, disguised),
     failLights: (fraction) => this.failLights(fraction),
-    alertAll: () => this.emitNoise(this.playerPos, 1e6),
+    alertAll: () => {
+      for (const ent of this.entities) ent.alertTo(this.playerPos);
+    },
     setThreatLevel: (level) => this.audio.setThreatLevel(level),
   };
 
   private notifCounter = 1;
   private notification: HudNotification | null = null;
   private notificationTimer = 0;
+  private autoReloadTimer: number | null = null;
+  private lastNearestEntityDist = 99;
+  private lastNearestEntityLabel: string | null = null;
 
   private keys: Record<string, boolean> = {};
   private pointerLocked = false;
@@ -284,7 +297,6 @@ export class BackroomsEngine {
   private lastDragX = 0;
   private lastDragY = 0;
   private raycaster = new THREE.Raycaster();
-  private wallBoxPool: THREE.Mesh[] = [];
 
   constructor(container: HTMLElement, onHudUpdate: (hud: HudState) => void) {
     this.container = container;
@@ -326,7 +338,7 @@ export class BackroomsEngine {
     );
     this.renderer.setSize(this.container.clientWidth || window.innerWidth, this.container.clientHeight || window.innerHeight);
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.style.display = 'block';
     this.renderer.domElement.style.width = '100%';
     this.renderer.domElement.style.height = '100%';
@@ -486,7 +498,6 @@ export class BackroomsEngine {
     this.pickups = [];
     this.particles = [];
     this.wallRayMeshes = [];
-    this.wallBoxPool = [];
     this.lightPanelInstanced = null;
     this.doors = [];
     this.colliders = [];
@@ -1111,7 +1122,10 @@ export class BackroomsEngine {
     for (const cell of this.walkableCells) {
       const d = dist[cell.gz * MAZE_SIZE + cell.gx];
       if (d < minSteps || this.isDoorCell(cell.gx, cell.gz)) continue;
+      if (cell.gx === this.level.exitCell.gx && cell.gz === this.level.exitCell.gz) continue;
       const wp = gridToWorld(cell.gx, cell.gz);
+      if (this.hideSpots.some((h) => Math.hypot(h.x - wp.x, h.z - wp.z) < 1.5)) continue;
+      if (this.pickups.some((pk) => !pk.collected && Math.hypot(pk.x - wp.x, pk.z - wp.z) < 1.5)) continue;
       if (this.entities.some((e) => !e.isRemoved && Math.hypot(e.position.x - wp.x, e.position.z - wp.z) < 6)) {
         continue;
       }
@@ -1155,6 +1169,7 @@ export class BackroomsEngine {
     this.audio.playPlayerHurt();
     if (this.health <= 0) {
       this.phase = 'gameover';
+      this.clearTransientInputs();
       if (document.pointerLockElement === this.renderer.domElement) {
         document.exitPointerLock();
       }
@@ -1181,10 +1196,12 @@ export class BackroomsEngine {
   }
 
   private interactDoor(): void {
+    if (this.phase !== 'playing') return;
     const door = this.findInteractableDoor();
     if (!door) return;
     if (door.broken) {
       this.pushNotification('This door was torn off its hinges.', 'warning');
+      this.emitHud();
       return;
     }
     if (!door.closed) {
@@ -1193,6 +1210,7 @@ export class BackroomsEngine {
         this.entities.some((e) => e.alive && door.panelOverlaps(e.position.x, e.position.z, 0.44));
       if (blocked) {
         this.pushNotification('Something is in the doorway.', 'warning');
+        this.emitHud();
         return;
       }
     }
@@ -1200,6 +1218,7 @@ export class BackroomsEngine {
     this.onDoorChanged(door);
     this.audio.playAt(door.closed ? 'door_close' : 'door_open', door.x, 1.2, door.z);
     this.emitNoise(_vec3A.set(door.x, 0, door.z), 5);
+    this.emitHud();
   }
 
   private onDoorChanged(door: DoorInstance): void {
@@ -1222,6 +1241,7 @@ export class BackroomsEngine {
       }
       if (!bashing) {
         door.bashTimer = Math.max(0, door.bashTimer - delta);
+        door.bashSoundTimer = 0;
         continue;
       }
       door.bashTimer += delta;
@@ -1239,9 +1259,26 @@ export class BackroomsEngine {
     }
   }
 
+  private clearTransientInputs(): void {
+    this.keys = {};
+    this.isAiming = false;
+    this.isDraggingLook = false;
+    if (this.autoReloadTimer !== null) {
+      window.clearTimeout(this.autoReloadTimer);
+      this.autoReloadTimer = null;
+    }
+  }
+
+  private blurFocusedControl(): void {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+  }
+
   /** Start a run. Pass a seed to replay a layout (daily runs, "retry this layout"); omit for a fresh one. */
   public startNewGame(difficulty: DifficultyMode, seed?: number): void {
     this.audio.init();
+    this.clearTransientInputs();
+    this.blurFocusedControl();
     this.difficulty = difficulty;
     const layoutSeed = seed ?? Math.floor(Math.random() * 2 ** 31);
     this.buildLevel(layoutSeed, difficulty);
@@ -1279,6 +1316,18 @@ export class BackroomsEngine {
     this.damageFlash = 0;
     this.hitmarkerState = 'none';
     this.hitmarkerTimer = 0;
+    this.crosshairSpread = 0;
+    this.screenShake = 0;
+    this.swayX = 0;
+    this.swayY = 0;
+    this.footstepTimer = 0;
+    this.hudEmitTimer = 0;
+    this.lastNearestEntityDist = 99;
+    this.lastNearestEntityLabel = null;
+
+    this.camera.fov = this.settings.fov;
+    this.camera.updateProjectionMatrix();
+    this.weapon.reset();
 
     this.phase = 'playing';
     this.weapon.root.visible = true;
@@ -1293,6 +1342,8 @@ export class BackroomsEngine {
   public resumeGame(): void {
     if (this.phase !== 'paused') return;
     this.audio.init();
+    this.clearTransientInputs();
+    this.blurFocusedControl();
     this.phase = 'playing';
     this.requestLock();
     this.emitHud();
@@ -1302,7 +1353,7 @@ export class BackroomsEngine {
     if (this.phase !== 'playing') return;
     this.phase = 'paused';
     this.pausedAtMs = performance.now();
-    this.isAiming = false;
+    this.clearTransientInputs();
     if (document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock();
     }
@@ -1311,8 +1362,16 @@ export class BackroomsEngine {
 
   public returnToTitle(): void {
     this.phase = 'title';
+    this.clearTransientInputs();
+    this.weapon.reset();
     this.weapon.root.visible = false;
-    this.isAiming = false;
+    this.audio.setThreatLevel(0);
+    this.notification = null;
+    this.notificationTimer = 0;
+    this.lastNearestEntityDist = 99;
+    this.lastNearestEntityLabel = null;
+    this.camera.fov = this.settings.fov;
+    this.camera.updateProjectionMatrix();
     if (document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock();
     }
@@ -1334,6 +1393,15 @@ export class BackroomsEngine {
         this.emitHud();
       }
     };
+    const requestPlain = () => {
+      this.rawMouseInput = false;
+      try {
+        const plain: Promise<void> | undefined = el.requestPointerLock();
+        plain?.catch(onFail);
+      } catch {
+        onFail();
+      }
+    };
     if (typeof el.requestPointerLock !== 'function') {
       onFail();
       return;
@@ -1350,17 +1418,15 @@ export class BackroomsEngine {
         },
         (err: unknown) => {
           if (err instanceof DOMException && err.name === 'NotSupportedError') {
-            this.rawMouseInput = false;
-            const plain: Promise<void> | undefined = el.requestPointerLock();
-            plain?.catch(onFail);
+            requestPlain();
           } else {
             onFail();
           }
         },
       );
     } catch {
-      /* Fallback drag/keyboard look remains active */
-      onFail();
+      // Some browsers throw synchronously when passed an options dictionary: fall back to plain lock.
+      requestPlain();
     }
   }
 
@@ -1411,14 +1477,17 @@ export class BackroomsEngine {
 
   private onWindowBlur = (): void => {
     // keyup never arrives for keys held while the window loses focus, which left the player walking on their own.
-    this.keys = {};
-    this.isAiming = false;
-    this.isDraggingLook = false;
+    this.clearTransientInputs();
     this.pauseGame();
   };
 
+  private updateHiddenState(): void {
+    this.hidden =
+      this.crouched &&
+      this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 0.95);
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
-    this.keys[e.code] = true;
     if (e.code === 'Escape') {
       if (this.phase === 'playing') {
         this.pauseGame();
@@ -1431,16 +1500,18 @@ export class BackroomsEngine {
     }
 
     if (this.phase !== 'playing') return;
+    this.keys[e.code] = true;
 
-    if (e.code === 'KeyF') {
+    if (e.code === 'KeyF' && !e.repeat) {
       this.toggleFlashlightAction();
-    } else if (e.code === 'KeyR') {
+    } else if (e.code === 'KeyR' && !e.repeat) {
       this.startReload();
-    } else if (e.code === 'KeyM') {
+    } else if (e.code === 'KeyM' && !e.repeat) {
       this.toggleMute();
     } else if (e.code === 'KeyC' && !e.repeat) {
       // C, not Ctrl: Ctrl+W would close the browser tab mid-crouch-walk.
       this.crouched = !this.crouched;
+      this.updateHiddenState();
       this.emitHud();
     } else if (e.code === 'KeyE' && !e.repeat) {
       this.interactDoor();
@@ -1471,7 +1542,7 @@ export class BackroomsEngine {
       }
       this.fireWeapon();
     } else if (e.button === 2) {
-      this.isAiming = true;
+      if (!this.isReloading) this.isAiming = true;
     }
   };
 
@@ -1517,7 +1588,12 @@ export class BackroomsEngine {
   };
 
   private toggleFlashlightAction(): void {
-    if (this.battery <= 0 && !this.flashlightOn) return;
+    if (this.battery <= 0 && !this.flashlightOn) {
+      this.audio.playFlashlightClick();
+      this.pushNotification('Flashlight battery dead. Find batteries.', 'warning');
+      this.emitHud();
+      return;
+    }
     this.flashlightOn = !this.flashlightOn;
     this.audio.playFlashlightClick();
     this.emitHud();
@@ -1543,6 +1619,7 @@ export class BackroomsEngine {
         this.startReload();
       } else {
         this.pushNotification('Magazine empty — find ammunition crates!', 'warning');
+        this.emitHud();
       }
       return;
     }
@@ -1561,7 +1638,7 @@ export class BackroomsEngine {
     this.emitNoise(this.playerPos, 26);
 
     // Raycast shot from camera center
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    this.raycaster.setFromCamera(_screenCenter, this.camera);
     this.raycaster.far = 42;
 
     const wallHits = this.raycaster.intersectObjects(this.wallRayMeshes, false);
@@ -1616,7 +1693,9 @@ export class BackroomsEngine {
     }
 
     if (this.ammoInMag === 0 && this.ammoReserve > 0) {
-      setTimeout(() => {
+      if (this.autoReloadTimer !== null) window.clearTimeout(this.autoReloadTimer);
+      this.autoReloadTimer = window.setTimeout(() => {
+        this.autoReloadTimer = null;
         if (!this.disposed && this.phase === 'playing') this.startReload();
       }, 180);
     }
@@ -1700,26 +1779,10 @@ export class BackroomsEngine {
   }
 
   private updateScene(delta: number, timeSec: number): void {
-    // Animate dust motes subtly
-    if (this.dustPoints) {
-      this.dustPoints.rotation.y += delta * 0.015;
-    }
-
-    // Update impact particles
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.life -= delta;
-      p.vel.y -= 9.5 * delta;
-      p.mesh.position.addScaledVector(p.vel, delta);
-      const s = Math.max(0.01, p.life / p.maxLife);
-      p.mesh.scale.setScalar(s);
-      if (p.life <= 0) {
-        this.fxGroup.remove(p.mesh);
-        this.particles.splice(i, 1);
-      }
-    }
-
     if (this.phase === 'title') {
+      if (this.dustPoints) {
+        this.dustPoints.rotation.y += delta * 0.015;
+      }
       // Live atmospheric Backrooms camera pan down the starting corridor
       this.titleOrbitTime += delta;
       this.camera.position.set(
@@ -1744,6 +1807,25 @@ export class BackroomsEngine {
     if (this.phase !== 'playing') {
       this.audio.updateAmbient(delta, 99, false);
       return;
+    }
+
+    // Animate dust motes subtly
+    if (this.dustPoints) {
+      this.dustPoints.rotation.y += delta * 0.015;
+    }
+
+    // Update impact particles (only while actively playing, frozen while paused)
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= delta;
+      p.vel.y -= 9.5 * delta;
+      p.mesh.position.addScaledVector(p.vel, delta);
+      const s = Math.max(0.01, p.life / p.maxLife);
+      p.mesh.scale.setScalar(s);
+      if (p.life <= 0) {
+        this.fxGroup.remove(p.mesh);
+        this.particles.splice(i, 1);
+      }
     }
 
     this.elapsedSeconds += delta;
@@ -1775,8 +1857,15 @@ export class BackroomsEngine {
     const isMoving = forwardInput !== 0 || strafeInput !== 0;
     const wantsSprint = Boolean(this.keys['ShiftLeft'] || this.keys['ShiftRight']) && isMoving && !this.isAiming;
     if (wantsSprint && this.crouched) this.crouched = false;
-    // Hysteresis: once stamina is spent the player is winded until it recovers to 35%. Without it, holding
-    // Shift on an empty bar flipped sprint on and off every frame (speed and head bob stuttering).
+    // Hysteresis: once stamina is spent the player is winded and cannot sprint until it recovers to
+    // WINDED_RECOVER_HOLDING (or WINDED_RECOVER_RELEASED after letting go of Shift). Without it, holding
+    // Shift on an empty bar flipped sprint on and off every frame.
+    if (
+      this.winded &&
+      (this.stamina >= WINDED_RECOVER_HOLDING || (!wantsSprint && this.stamina >= WINDED_RECOVER_RELEASED))
+    ) {
+      this.winded = false;
+    }
     const isSprinting = wantsSprint && !this.winded && this.stamina > 0;
 
     if (isSprinting) {
@@ -1784,7 +1873,6 @@ export class BackroomsEngine {
       if (this.stamina <= 0) this.winded = true;
     } else {
       this.stamina = Math.min(100, this.stamina + 14 * delta);
-      if (this.winded && this.stamina >= 35) this.winded = false;
     }
 
     const moveSpeed = isSprinting ? 5.65 : this.crouched ? 1.9 : this.isAiming ? 2.3 : 3.65;
@@ -1812,8 +1900,7 @@ export class BackroomsEngine {
       }
     }
 
-    this.hidden =
-      this.crouched && this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 0.85);
+    this.updateHiddenState();
     const targetEye = this.hidden ? 0.62 : this.crouched ? 1.05 : 1.68;
     this.eyeHeight = THREE.MathUtils.damp(this.eyeHeight, targetEye, 10, delta);
 
@@ -1902,6 +1989,8 @@ export class BackroomsEngine {
         nearestLabel = ent.label;
       }
     }
+    this.lastNearestEntityDist = nearestDist;
+    this.lastNearestEntityLabel = nearestLabel;
 
     this.updateDoors(delta);
     this.director.update(delta);
@@ -1938,7 +2027,8 @@ export class BackroomsEngine {
       if (d < 1.35) {
         if (p.kind === 'tape') {
           p.collected = true;
-          p.group.visible = false;
+          // Hide only the cassette + its beacon so the office table remains visible as a hiding spot.
+          p.rotTarget.visible = false;
           this.tapesCollected++;
           this.audio.playPickup('tape');
           this.tapeBeacons.get(p.id)?.dispose();
@@ -1978,7 +2068,7 @@ export class BackroomsEngine {
           this.health = Math.min(this.maxHealth, this.health + 35);
           this.audio.playPickup('almond_water');
           this.pushNotification('Almond Water consumed (+35 Vitality).', 'success');
-        } else if (p.kind === 'battery' && this.battery < 100) {
+        } else if (p.kind === 'battery' && Math.round(this.battery) < 100) {
           p.collected = true;
           p.group.visible = false;
           this.battery = Math.min(100, this.battery + 45);
@@ -2007,6 +2097,7 @@ export class BackroomsEngine {
     );
     if (this.exitUnlocked && exitDist < 1.75) {
       this.phase = 'victory';
+      this.clearTransientInputs();
       if (document.pointerLockElement === this.renderer.domElement) {
         document.exitPointerLock();
       }
@@ -2052,6 +2143,8 @@ export class BackroomsEngine {
           this.fixtureColorTemp.setRGB(b, b * 0.96, b * 0.82);
           this.lightPanelInstanced.setColorAt(i, this.fixtureColorTemp);
         }
+        const glow = this.fixtureGlows[i];
+        if (glow) glow.visible = factor > 0.3;
       }
 
       const dx = f.x - camPos.x;
@@ -2179,31 +2272,33 @@ export class BackroomsEngine {
 
   private buildHudSnapshot(
     webglError: string | null = null,
-    nearestEntityDist = 99,
-    nearestEntityLabel: string | null = null,
+    nearestEntityDist = this.lastNearestEntityDist,
+    nearestEntityLabel: string | null = this.lastNearestEntityLabel,
   ): HudState {
     const exitDx = this.level.exitPos.x - this.playerPos.x;
     const exitDz = this.level.exitPos.z - this.playerPos.z;
     const exitDistanceMeters = Math.round(Math.hypot(exitDx, exitDz) * 10) / 10;
     const angleToExit = Math.atan2(-exitDx, -exitDz);
+    // Clockwise-positive relative bearing (0 ahead, +PI/2 right, -PI/2 left) to match CSS rotate().
     const exitBearingRad = Math.atan2(
-      Math.sin(angleToExit - this.yaw),
-      Math.cos(angleToExit - this.yaw),
+      Math.sin(this.yaw - angleToExit),
+      Math.cos(this.yaw - angleToExit),
     );
 
     let interactPrompt: string | null = null;
     if (this.phase === 'playing') {
       if (exitDistanceMeters < 3.4) {
+        const remaining = this.tapesTotal - this.tapesCollected;
         interactPrompt = this.exitUnlocked
           ? 'SECTOR EXIT UNLOCKED — STEP INTO THRESHOLD'
-          : `EXIT LOCKED — RECOVER ${this.tapesTotal - this.tapesCollected} MORE VHS TAPES`;
+          : `EXIT LOCKED — RECOVER ${remaining} MORE VHS ${remaining === 1 ? 'TAPE' : 'TAPES'}`;
       } else {
         const door = this.findInteractableDoor();
         if (door) {
           interactPrompt = door.broken ? 'DOOR TORN OFF ITS HINGES' : door.closed ? '[E] OPEN DOOR' : '[E] CLOSE DOOR';
         } else if (
           !this.crouched &&
-          this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 1.2)
+          this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 0.95)
         ) {
           interactPrompt = '[C] CROUCH UNDER THE DESK TO HIDE';
         }
@@ -2263,8 +2358,8 @@ export class BackroomsEngine {
 
   private emitHud(
     webglError: string | null = null,
-    nearestEntityDist = 99,
-    nearestEntityLabel: string | null = null,
+    nearestEntityDist = this.lastNearestEntityDist,
+    nearestEntityLabel: string | null = this.lastNearestEntityLabel,
   ): void {
     this.onHudUpdate(this.buildHudSnapshot(webglError, nearestEntityDist, nearestEntityLabel));
   }
@@ -2303,10 +2398,13 @@ export class BackroomsEngine {
         for (let i = 0; i < frames; i++) {
           t += dt;
           this.updateScene(dt, t);
-          this.renderer.render(this.scene, this.camera);
+        }
+        this.renderer.render(this.scene, this.camera);
+        if (this.pendingDisposal.length > 0) {
           for (const resource of this.pendingDisposal) resource.dispose();
           this.pendingDisposal = [];
         }
+        this.emitHud();
       },
       teleport: (x: number, z: number) => {
         this.playerPos.set(x, this.playerPos.y, z);
@@ -2323,6 +2421,8 @@ export class BackroomsEngine {
       },
       setCrouch: (on: boolean) => {
         this.crouched = on;
+        this.updateHiddenState();
+        this.emitHud();
       },
       interact: () => this.interactDoor(),
       startGame: (diff = 'standard', seed?: number) => {
@@ -2358,8 +2458,8 @@ export class BackroomsEngine {
         ];
         for (const [ox, oz] of offsets) {
           const cand = new THREE.Vector3(alive.position.x + ox, 1.68, alive.position.z + oz);
-          resolveCircleWallCollision(cand, 0.45, this.level.grid, this.level.pillars);
-          if (hasLineOfSight(cand, alive.position, this.level.grid)) {
+          resolveCircleWallCollision(cand, 0.45, this.level.grid, this.level.pillars, this.colliders);
+          if (this.lineOfSight(cand, alive.position)) {
             this.hitmarkerState = 'none';
             this.hitmarkerTimer = 0;
             this.playerPos.copy(cand);
@@ -2377,7 +2477,7 @@ export class BackroomsEngine {
         const tape = this.pickups.find((p) => p.kind === 'tape' && !p.collected);
         if (!tape) return false;
         const cand = new THREE.Vector3(tape.x, 1.68, tape.z - 2.3);
-        resolveCircleWallCollision(cand, 0.45, this.level.grid, this.level.pillars);
+        resolveCircleWallCollision(cand, 0.45, this.level.grid, this.level.pillars, this.colliders);
         this.playerPos.copy(cand);
         window.__BACKROOMS_DEBUG__?.lookAtWorld(tape.x, 0.95, tape.z);
         this.updateCeilingLights(performance.now() * 0.001);
@@ -2428,6 +2528,7 @@ export class BackroomsEngine {
     this.disposed = true;
     cancelAnimationFrame(this.frameId);
     clearTimeout(this.frameId);
+    this.clearTransientInputs();
 
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
@@ -2444,9 +2545,28 @@ export class BackroomsEngine {
       this.renderer.domElement.removeEventListener('contextmenu', this.onContextMenu);
     }
 
+    this.clearGroups();
+    for (const resource of this.pendingDisposal) resource.dispose();
+    this.pendingDisposal = [];
+
+    this.weapon?.dispose();
+    if (this.dustPoints) {
+      this.dustPoints.geometry.dispose();
+      (this.dustPoints.material as THREE.Material).dispose();
+    }
+    if (this.flashlightCone) {
+      this.flashlightCone.geometry.dispose();
+      (this.flashlightCone.material as THREE.Material).dispose();
+    }
+    if (this.scene?.environment) {
+      this.scene.environment.dispose();
+      this.scene.environment = null;
+    }
+
     this.audio.dispose();
     this.particleGeo.dispose();
     this.particleMats.forEach((m) => m.dispose());
+    this.particleMats.clear();
     this.materials?.dispose();
     this.renderer?.dispose();
     delete window.__BACKROOMS_DEBUG__;

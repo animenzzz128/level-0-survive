@@ -199,7 +199,10 @@ export const GameHud: React.FC<GameHudProps> = ({
               {!hud.pointerLocked && (
                 <button
                   type="button"
-                  onClick={onRequestLock}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onRequestLock();
+                  }}
                   className="border border-[#d4be74]/35 bg-[#17150e]/90 px-3 py-1.5 text-xs font-medium text-[#ebe3c5] transition-colors hover:border-[#e8b838] hover:text-white"
                 >
                   Lock Cursor
@@ -207,7 +210,10 @@ export const GameHud: React.FC<GameHudProps> = ({
               )}
               <button
                 type="button"
-                onClick={onToggleMute}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onToggleMute();
+                }}
                 aria-label={hud.muted ? 'Unmute audio' : 'Mute audio'}
                 className="flex h-8 w-8 items-center justify-center border border-[#d4be74]/25 bg-[#17150e]/85 text-[#d4be74] transition-colors hover:border-[#e8b838] hover:text-white"
               >
@@ -425,7 +431,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                 {hud.isReloading ? (
                   <span className="text-[#e8b838]">Reloading...</span>
                 ) : hud.ammoInMag === 0 ? (
-                  <span className="text-[#f87171]">Press [R] to Reload</span>
+                  <span className="text-[#f87171]">
+                    {hud.ammoReserve > 0 ? 'Press [R] to Reload' : 'Out of Ammo'}
+                  </span>
                 ) : (
                   <span className="text-[#8a805f]">
                     {hud.nearestEntityDist < 12

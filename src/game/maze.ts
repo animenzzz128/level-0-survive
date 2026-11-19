@@ -567,11 +567,17 @@ export function resolveCircleWallCollision(
     const dx = pos.x - closestX;
     const dz = pos.z - closestZ;
     const distSq = dx * dx + dz * dz;
-    if (distSq < radius * radius && distSq > 1e-6) {
+    if (distSq >= radius * radius) continue;
+    if (distSq > 1e-8) {
       const dist = Math.sqrt(distSq);
       const push = radius - dist;
       pos.x += (dx / dist) * push;
       pos.z += (dz / dist) * push;
+    } else {
+      const penX = Math.min(pos.x - minX, maxX - pos.x);
+      const penZ = Math.min(pos.z - minZ, maxZ - pos.z);
+      if (penX < penZ) pos.x = pos.x - minX < maxX - pos.x ? minX - radius : maxX + radius;
+      else pos.z = pos.z - minZ < maxZ - pos.z ? minZ - radius : maxZ + radius;
     }
   }
 

@@ -15,6 +15,8 @@ export class TacticalWeaponViewmodel {
   private readonly muzzleLight: THREE.PointLight;
   private readonly shellsGroup: THREE.Group;
   private readonly shells: ShellCasing[] = [];
+  private readonly casingGeo: THREE.CylinderGeometry;
+  private readonly casingMat: THREE.MeshStandardMaterial;
 
   private recoilZ = 0;
   private recoilPitch = 0;
@@ -36,6 +38,12 @@ export class TacticalWeaponViewmodel {
 
     this.shellsGroup = new THREE.Group();
     scene.add(this.shellsGroup);
+    this.casingGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.022, 6);
+    this.casingMat = new THREE.MeshStandardMaterial({
+      color: 0xd9a845,
+      metalness: 0.85,
+      roughness: 0.25,
+    });
 
     const polymerMat = new THREE.MeshStandardMaterial({
       color: 0x1e2022,
@@ -197,13 +205,7 @@ export class TacticalWeaponViewmodel {
     this.flashGroup.scale.set(s, s, 1);
     this.muzzleLight.intensity = 6.5;
 
-    const casingGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.022, 6);
-    const casingMat = new THREE.MeshStandardMaterial({
-      color: 0xd9a845,
-      metalness: 0.85,
-      roughness: 0.25,
-    });
-    const mesh = new THREE.Mesh(casingGeo, casingMat);
+    const mesh = new THREE.Mesh(this.casingGeo, this.casingMat);
     const worldStart = new THREE.Vector3(0.18, -0.14, -0.42).applyMatrix4(camera.matrixWorld);
     mesh.position.copy(worldStart);
 
@@ -232,6 +234,23 @@ export class TacticalWeaponViewmodel {
     const p = isAiming ? this.adsPos : this.hipPos;
     this.gunPivot.position.copy(p);
     this.gunPivot.rotation.set(0, 0, 0);
+  }
+
+  public reset(): void {
+    this.recoilZ = 0;
+    this.recoilPitch = 0;
+    this.slideBack = 0;
+    this.slideGroup.position.z = 0;
+    this.flashTimer = 0;
+    this.flashGroup.visible = false;
+    this.muzzleLight.intensity = 0;
+    this.reloadTimer = 0;
+    this.bobPhase = 0;
+    this.snapAim(false);
+    for (const s of this.shells) {
+      this.shellsGroup.remove(s.mesh);
+    }
+    this.shells.length = 0;
   }
 
   public update(
@@ -303,10 +322,24 @@ export class TacticalWeaponViewmodel {
       s.mesh.rotation.y += s.rotVel.y * delta;
       if (s.life <= 0 || s.mesh.position.y < 0.03) {
         this.shellsGroup.remove(s.mesh);
-        s.mesh.geometry.dispose();
-        (s.mesh.material as THREE.Material).dispose();
         this.shells.splice(i, 1);
       }
     }
+  }
+
+  public dispose(): void {
+    this.reset();
+    this.shellsGroup.parent?.remove(this.shellsGroup);
+    const disposables = new Set<{ dispose: () => void }>();
+    this.root.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      disposables.add(obj.geometry);
+      for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+        disposables.add(m);
+      }
+    });
+    disposables.forEach((d) => d.dispose());
+    this.casingGeo.dispose();
+    this.casingMat.dispose();
   }
 }
