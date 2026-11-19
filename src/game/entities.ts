@@ -327,7 +327,8 @@ export class BackroomsEntity {
       }
     });
 
-    this.addHitbox(0.7, 1.35, 0.65, 0.95, false);
+    // Body box spans 0.275–1.91 so its top meets the head box (1.91–2.39) with no unhittable gap.
+    this.addHitbox(0.7, 1.635, 0.65, 1.0925, false);
     this.addHitbox(0.45, 0.48, 0.45, 2.15, true);
   }
 
@@ -401,7 +402,8 @@ export class BackroomsEntity {
 
     this.group.add(this.torsoRef);
 
-    this.addHitbox(0.85, 1.35, 0.75, 0.85, false);
+    // Body box spans 0.175–1.605 so its top meets the head box (1.605–2.155) with no unhittable gap.
+    this.addHitbox(0.85, 1.43, 0.75, 0.89, false);
     this.addHitbox(0.6, 0.55, 0.6, 1.88, true);
   }
 
@@ -489,7 +491,8 @@ export class BackroomsEntity {
       }
     });
 
-    this.addHitbox(0.95, 1.3, 0.75, 0.95, false);
+    // Body box spans 0.3–1.77 so its top meets the head box (1.77–2.27) with no unhittable gap.
+    this.addHitbox(0.95, 1.47, 0.75, 1.035, false);
     this.addHitbox(0.55, 0.5, 0.55, 2.02, true);
   }
 
