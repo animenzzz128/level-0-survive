@@ -19,6 +19,8 @@ export class TacticalWeaponViewmodel {
   private readonly casingMat: THREE.MeshStandardMaterial;
 
   private recoilZ = 0;
+  /** Off with Reduce flashing: at full fire rate the muzzle light flashed ~4.8 times per second. */
+  private muzzleLightEnabled = true;
   private recoilPitch = 0;
   private slideBack = 0;
   private flashTimer = 0;
@@ -194,6 +196,10 @@ export class TacticalWeaponViewmodel {
     this.gunPivot.add(this.muzzleLight);
   }
 
+  public setMuzzleLightEnabled(enabled: boolean): void {
+    this.muzzleLightEnabled = enabled;
+  }
+
   public triggerFire(camera: THREE.Camera): void {
     this.recoilZ = 0.068;
     this.recoilPitch = 0.14;
@@ -203,7 +209,7 @@ export class TacticalWeaponViewmodel {
     this.flashGroup.rotation.z = Math.random() * Math.PI * 2;
     const s = 0.72 + Math.random() * 0.35;
     this.flashGroup.scale.set(s, s, 1);
-    this.muzzleLight.intensity = 6.5;
+    this.muzzleLight.intensity = this.muzzleLightEnabled ? 6.5 : 0;
 
     const mesh = new THREE.Mesh(this.casingGeo, this.casingMat);
     const worldStart = new THREE.Vector3(0.18, -0.14, -0.42).applyMatrix4(camera.matrixWorld);

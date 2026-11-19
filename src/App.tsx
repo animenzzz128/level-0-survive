@@ -45,6 +45,10 @@ const INITIAL_HUD: HudState = {
   shotsHit: 0,
   damageTaken: 0,
   damageFlash: 0,
+  damageDirectionDeg: null,
+  damageDirectionAlpha: 0,
+  killedBy: null,
+  reduceFlashing: false,
   hitmarkerState: 'none',
   crosshairSpread: 0,
   pointerLocked: false,
@@ -128,7 +132,14 @@ export default function App() {
       hud.elapsedSeconds,
       run.dailyLabel,
     );
-    setSummary({ mode: run.mode, dailyLabel: run.dailyLabel, bestTime: record.bestTime, isNewBest });
+    setSummary({
+      mode: run.mode,
+      dailyLabel: run.dailyLabel,
+      bestTime: record.bestTime,
+      isNewBest,
+      escapes: record.escapes,
+      deaths: record.deaths,
+    });
     setRecordsVersion((v) => v + 1);
   }, [hud.phase, hud.elapsedSeconds]);
 

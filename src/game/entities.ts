@@ -32,6 +32,8 @@ export interface EntityVoice {
   playStep(heavy: boolean): void;
   playScreech(archetype: EntityArchetype): void;
   playIdle(archetype: EntityArchetype): void;
+  /** Rising rasp right before a melee swing lands: the player's cue to back off. */
+  playWindup(archetype: EntityArchetype): void;
   playDeath(): void;
   dispose(): void;
 }
@@ -152,6 +154,19 @@ const STOP_RANGE = 1.25;
 const SEARCH_DURATION = 7;
 const GIVE_UP_AFTER = 8;
 const ENTITY_RADIUS = 0.44;
+// Awareness (game-ai skill: "delay the first reaction by roughly 0.2-0.5 s"). Seeing the player fills a 0-1
+// meter, faster up close and at half speed against a crouching player. At AWARENESS_NOTICE the entity turns
+// and comes to look; at 1 it hunts. Within arm's reach it is instant.
+const AWARENESS_NOTICE = 0.35;
+const AWARENESS_DECAY = 0.4; // per second while the player is out of view
+const FIRST_STRIKE_DELAY = 0.45; // after a chase starts: the screech always comes before the first blow
+// Melee is telegraphed (fps-shooter skill): a wind-up, then the blow lands only if the player is still close.
+const WINDUP_TIME = 0.3;
+const WINDUP_REACH = ATTACK_RANGE * 1.2;
+// Hit reactions (game-feel skill): one stagger per burst, a tiny hit-stop on the target only, an eased flinch.
+const STAGGER_COOLDOWN = 0.7;
+const HIT_FREEZE = 0.05;
+const KILL_FREEZE = 0.1;
 
 export class BackroomsEntity {
   public readonly id: number;
@@ -198,6 +213,11 @@ export class BackroomsEntity {
   private twitchTimer = 4 + Math.random() * 4;
   private twitchLeft = 0;
   private stuckTimer = 0;
+  private awareness = 0;
+  private windupTimer = 0;
+  private staggerCooldown = 0;
+  private hitFreeze = 0;
+  private flinch = 0;
   private lastProgressPos = new THREE.Vector3();
   private stateAtLastUpdate: EntityState = 'patrol';
 
@@ -688,6 +708,15 @@ export class BackroomsEntity {
     return this.alive && (this.state === 'chase' || this.state === 'investigate');
   }
 
+  /** 0-1 detection meter (debug / tests). */
+  public get awarenessLevel(): number {
+    return this.awareness;
+  }
+
+  public get isWindingUp(): boolean {
+    return this.windupTimer > 0;
+  }
+
   public activeHitMeshes(): THREE.Mesh[] {
     if (!this.alive) return [];
     if (this.state === 'disguised' && this.disguiseHitMesh) return [this.disguiseHitMesh];
@@ -719,9 +748,17 @@ export class BackroomsEntity {
     this.stuckTimer = 0;
   }
 
+  /** Start hunting. A fresh chase always gives the player a beat before the first blow. */
+  private enterChase(): void {
+    if (this.state !== 'chase') this.attackCooldown = Math.max(this.attackCooldown, FIRST_STRIKE_DELAY);
+    this.state = 'chase';
+    this.awareness = 1;
+  }
+
   private reveal(): void {
     this.setBodyVisible(true);
     this.state = 'chase';
+    this.awareness = 1;
     this.revealTimer = REVEAL_DURATION;
     this.group.scale.set(1, 0.25, 1);
     this.screechCooldown = 5.5;
@@ -753,6 +790,11 @@ export class BackroomsEntity {
     this.pathTimer = 0;
     this.twitchLeft = 0;
     this.stuckTimer = 0;
+    this.awareness = 0;
+    this.windupTimer = 0;
+    this.staggerCooldown = 0;
+    this.hitFreeze = 0;
+    this.flinch = 0;
     if (this.disguiseGroup) this.disguiseGroup.rotation.z = 0;
     this.cachedNextWaypoint.copy(this.position);
     this.patrolTarget.copy(this.position);
@@ -798,9 +840,14 @@ export class BackroomsEntity {
     const finalDamage = Math.round(baseDamage * (isHead ? HEADSHOT_MULTIPLIER : 1.0));
     this.health = Math.max(0, this.health - finalDamage);
     this.hitFlashTimer = 0.07;
-    if (!revealed) {
+    this.hitFreeze = HIT_FREEZE;
+    this.flinch = 1;
+    // Only the first hit of a burst staggers; otherwise a steady trigger froze a charging Howler in place.
+    if (!revealed && this.staggerCooldown <= 0) {
       this.state = 'stagger';
       this.staggerTimer = 0.18;
+      this.staggerCooldown = STAGGER_COOLDOWN;
+      this.windupTimer = 0; // a staggering hit interrupts a swing
     }
 
     // Subtle whole-body impact tint (never cartoonish red boots/gloves)
@@ -808,7 +855,10 @@ export class BackroomsEntity {
     this.bodyMat.emissiveIntensity = 0.28;
 
     const killed = this.health <= 0;
-    if (killed) this.beginDying('killed');
+    if (killed) {
+      this.hitFreeze = KILL_FREEZE;
+      this.beginDying('killed');
+    }
     return {
       hit: true,
       killed,
@@ -840,7 +890,8 @@ export class BackroomsEntity {
     this.pathTimer = 0;
     if (this.state === 'chase' || this.state === 'stagger') return;
     // Howlers lunge at nearby sounds; everything else goes to look.
-    this.state = this.archetype === 'howler' && d < 10 ? 'chase' : 'investigate';
+    if (this.archetype === 'howler' && d < 10) this.enterChase();
+    else this.state = 'investigate';
   }
 
   /** Director-level omniscience (e.g. final tape): every active entity (including deaf Smilers) knows where you are. */
@@ -850,7 +901,7 @@ export class BackroomsEntity {
     this.hasLastKnown = true;
     this.lostTimer = 0;
     this.pathTimer = 0;
-    if (this.state !== 'stagger') this.state = 'chase';
+    if (this.state !== 'stagger') this.enterChase();
   }
 
   public update(
@@ -874,6 +925,12 @@ export class BackroomsEntity {
     }
     if (this.attackCooldown > 0) this.attackCooldown -= delta;
     if (this.screechCooldown > 0) this.screechCooldown -= delta;
+    if (this.staggerCooldown > 0) this.staggerCooldown -= delta;
+    if (this.hitFreeze > 0) {
+      // Hit-stop on this entity only: hold the pose for a few frames; the rest of the world keeps running.
+      this.hitFreeze -= delta;
+      return;
+    }
 
     const dx = player.pos.x - this.position.x;
     const dz = player.pos.z - this.position.z;
@@ -906,9 +963,7 @@ export class BackroomsEntity {
 
     if (this.state === 'stagger') {
       this.staggerTimer -= delta;
-      this.torsoRef.rotation.x = -0.18;
       if (this.staggerTimer <= 0) {
-        this.torsoRef.rotation.x = 0;
         if (this.hasLastKnown) this.state = 'chase';
         else this.enterSearch(world);
       }
@@ -937,30 +992,57 @@ export class BackroomsEntity {
     }
 
     // Vision: range depends on the player's light and stance; most entities only see in front of them.
+    // Seeing the player fills the awareness meter instead of triggering a chase on the spot.
     let sees = false;
     if (this.state !== 'retreat' && this.state !== 'stagger') {
       let sight = player.flashlightOn ? this.profile.sightLit : this.profile.sightDark;
       if (player.crouched) sight *= 0.6;
       if (player.hidden) sight = Math.min(sight, 1.0);
+      let inView = false;
       if (los && dist <= sight) {
         if (dist < 3 || this.profile.fovCos <= -1) {
-          sees = true;
+          inView = true;
         } else {
           const fx = Math.sin(this.group.rotation.y);
           const fz = Math.cos(this.group.rotation.y);
-          sees = (dx * fx + dz * fz) / dist >= this.profile.fovCos;
+          inView = (dx * fx + dz * fz) / dist >= this.profile.fovCos;
         }
       }
-      // Anything standing in the open within arm's reach gets noticed.
-      if (!sees && los && dist < 1.8 && !player.hidden) sees = true;
+      // Anything standing in the open within arm's reach gets noticed at once.
+      const armsReach = los && dist < 1.8 && !player.hidden;
+      sees = inView || armsReach;
       if (sees) {
+        if (armsReach || this.state === 'chase') {
+          this.awareness = 1;
+        } else {
+          const closeness = 1 - Math.min(1, dist / Math.max(sight, 0.001));
+          const rate = (0.6 + 4.4 * closeness) * (player.crouched ? 0.5 : 1);
+          this.awareness = Math.min(1, this.awareness + rate * delta);
+        }
+        this.timeSinceSeen = 0;
+      } else {
+        this.awareness = Math.max(0, this.awareness - AWARENESS_DECAY * delta);
+        this.timeSinceSeen += delta;
+      }
+      if (sees && this.awareness >= 1) {
         this.lastKnown.copy(player.pos);
         this.hasLastKnown = true;
         this.lostTimer = 0;
-        this.timeSinceSeen = 0;
-        this.state = 'chase';
-      } else {
-        this.timeSinceSeen += delta;
+        this.enterChase();
+      } else if (
+        sees &&
+        this.awareness >= AWARENESS_NOTICE &&
+        (this.state === 'patrol' || this.state === 'search' || this.state === 'investigate')
+      ) {
+        // Something moved: turn and come closer to look. This bark is the player's cue to back off or hide.
+        if (this.state !== 'investigate') {
+          this.voice?.playIdle(this.archetype);
+          this.pathTimer = 0;
+        }
+        this.state = 'investigate';
+        this.lastKnown.copy(player.pos);
+        this.hasLastKnown = true;
+        this.lostTimer = 0;
       }
     }
 
@@ -1072,9 +1154,16 @@ export class BackroomsEntity {
       }
     }
 
-    if (this.state === 'chase' && sees && dist <= ATTACK_RANGE && this.attackCooldown <= 0) {
-      this.attackCooldown = 1.15;
-      hooks.onAttack(this, this.profile.attackDamage);
+    if (this.windupTimer > 0) {
+      this.windupTimer -= delta;
+      if (this.windupTimer <= 0) {
+        this.attackCooldown = 1.15;
+        // Backing off (or breaking line of sight) during the wind-up dodges the blow.
+        if (this.state === 'chase' && sees && dist <= WINDUP_REACH) hooks.onAttack(this, this.profile.attackDamage);
+      }
+    } else if (this.state === 'chase' && sees && dist <= ATTACK_RANGE && this.attackCooldown <= 0) {
+      this.windupTimer = WINDUP_TIME;
+      this.voice?.playWindup(this.archetype);
     }
 
     if (moved && this.archetype !== 'smiler') {
@@ -1123,6 +1212,10 @@ export class BackroomsEntity {
   }
 
   private updateDying(delta: number, hooks: EntityHooks): void {
+    if (this.hitFreeze > 0) {
+      this.hitFreeze -= delta;
+      return;
+    }
     // VHS-glitch collapse: flicker, jitter sideways and sink into the carpet.
     this.dyingTimer -= delta;
     const t = 1 - Math.max(0, this.dyingTimer) / DYING_DURATION;
@@ -1173,14 +1266,13 @@ export class BackroomsEntity {
 
   private animate(delta: number, lit: boolean): void {
     const hunting = this.state === 'chase' || this.state === 'investigate';
-    this.animPhase += delta * (hunting ? 11.5 : 4.2);
+    // Legs stop while staggered, so the hit reads as a hit rather than a stumble-walk.
+    this.animPhase += delta * (this.state === 'stagger' ? 0 : hunting ? 11.5 : 4.2);
 
     if (this.archetype === 'howler') {
       const twitch = Math.sin(this.animPhase * 2.7) * 0.14;
       this.headRef.rotation.z = twitch + Math.cos(this.animPhase * 1.1) * 0.18;
-      if (this.state !== 'stagger') {
-        this.torsoRef.rotation.x = hunting ? 0.22 : 0.1;
-      }
+      this.torsoRef.rotation.x = hunting ? 0.22 : 0.1;
       this.leftArmRef.rotation.x = Math.sin(this.animPhase) * 0.55 - (hunting ? 0.6 : 0.25);
       this.rightArmRef.rotation.x = -Math.sin(this.animPhase) * 0.55 - (hunting ? 0.6 : 0.25);
       if (this.leftLegRef && this.rightLegRef) {
@@ -1189,6 +1281,7 @@ export class BackroomsEntity {
       }
     } else if (this.archetype === 'smiler') {
       this.torsoRef.position.y = 1.12 + Math.sin(this.animPhase * 0.45) * 0.12;
+      this.torsoRef.rotation.x = 0;
       this.torsoRef.rotation.z = Math.sin(this.animPhase * 0.32) * 0.08;
       this.leftArmRef.rotation.z = Math.sin(this.animPhase * 0.7) * 0.18;
       this.rightArmRef.rotation.z = -Math.sin(this.animPhase * 0.7) * 0.18;
@@ -1201,7 +1294,7 @@ export class BackroomsEntity {
     } else {
       const limp = Math.abs(Math.sin(this.animPhase * 0.75)) * 0.07;
       this.torsoRef.position.y = 0.96 + limp;
-      if (this.state !== 'stagger') this.torsoRef.rotation.x = 0;
+      this.torsoRef.rotation.x = 0;
       this.torsoRef.rotation.z = Math.sin(this.animPhase * 0.75) * 0.08;
       this.leftArmRef.rotation.x = Math.sin(this.animPhase * 0.75) * 0.42;
       this.rightArmRef.rotation.x = -Math.sin(this.animPhase * 0.75) * 0.25 - 0.3;
@@ -1209,6 +1302,15 @@ export class BackroomsEntity {
         this.leftLegRef.rotation.x = Math.sin(this.animPhase * 0.75) * 0.38;
         this.rightLegRef.rotation.x = -Math.sin(this.animPhase * 0.75) * 0.38;
       }
+    }
+
+    // Eased flinch on top of the pose (instead of snapping the torso back and forth).
+    this.flinch = THREE.MathUtils.damp(this.flinch, 0, 10, delta);
+    this.torsoRef.rotation.x -= 0.35 * this.flinch;
+    if (this.windupTimer > 0) {
+      const raise = 1 - this.windupTimer / WINDUP_TIME;
+      this.leftArmRef.rotation.x = -0.6 - 1.4 * raise;
+      this.rightArmRef.rotation.x = -0.6 - 1.4 * raise;
     }
   }
 }

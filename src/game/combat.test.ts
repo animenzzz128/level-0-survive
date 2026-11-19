@@ -2,6 +2,7 @@
 // (fps-shooter skill: "tune the table, not individual numbers"). Run with `npm test`.
 import assert from 'node:assert/strict';
 import { shotDamage, shotsToKill } from './combat';
+import { aimFov, horizontalFov, lookScale } from './aim';
 import { entityMaxHealth, isBulletImmune } from './entities';
 import { EntityArchetype } from './types';
 
@@ -32,6 +33,25 @@ for (const nightmare of [false, true]) {
       console.error((err as Error).message);
     }
   }
+}
+
+// Aim: matched sensitivity (fps-shooter skill) - a small mouse movement sweeps the same fraction of the
+// screen whether aiming or not, at every FOV the settings allow.
+for (const hip of [60, 72, 95]) {
+  const aim = aimFov(hip);
+  const hipTurn = 0.0022 * 10; // radians for a 10 px movement at hip
+  const aimTurn = hipTurn * lookScale(aim, hip);
+  const deg = Math.PI / 180;
+  const hipSweep = Math.tan(hipTurn) / Math.tan((hip * deg) / 2);
+  const aimSweep = Math.tan(aimTurn) / Math.tan((aim * deg) / 2);
+  try {
+    assert.ok(aim < hip && aim > hip * 0.6, `aim FOV ${aim.toFixed(1)} for hip ${hip}`);
+    assert.ok(Math.abs(aimSweep / hipSweep - 1) < 0.01, `aim sweep differs by ${((aimSweep / hipSweep - 1) * 100).toFixed(2)}%`);
+  } catch (err) {
+    failures++;
+    console.error(`aim @${hip}: ${(err as Error).message}`);
+  }
+  rows.push(`FOV ${hip}° (${Math.round(horizontalFov(hip))}° horizontal) -> aiming ${aim.toFixed(1)}°, look speed x${lookScale(aim, hip).toFixed(3)}`);
 }
 
 console.log(rows.join('\n'));

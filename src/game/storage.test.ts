@@ -33,6 +33,7 @@ check('defaults when nothing is stored', () => {
 check('legacy (unversioned) settings migrate and every field is validated', () => {
   put('level0.settings.v1', { sensitivity: 99, invertY: 'yes', volume: -1, fov: null, quality: 'ultra', tips: 0 });
   assert.deepEqual(loadSettings(), {
+    ...DEFAULT_SETTINGS,
     sensitivity: 3,
     invertY: false,
     volume: 0,
@@ -45,7 +46,16 @@ check('legacy (unversioned) settings migrate and every field is validated', () =
 check('valid legacy settings survive the migration', () => {
   const mine = { sensitivity: 1.5, invertY: true, volume: 0.4, fov: 85, quality: 'low', tips: false };
   put('level0.settings.v1', mine);
-  assert.deepEqual(loadSettings(), mine);
+  // Settings added later (comfort options) fill in from defaults.
+  assert.deepEqual(loadSettings(), { ...DEFAULT_SETTINGS, ...mine });
+});
+
+check('comfort settings are validated too', () => {
+  put('level0.settings.v1', { version: 1, data: { shakeStrength: 7, reduceMotion: 'on', reduceFlashing: true } });
+  const s = loadSettings();
+  assert.equal(s.shakeStrength, 1);
+  assert.equal(s.reduceMotion, false);
+  assert.equal(s.reduceFlashing, true);
 });
 
 check('settings are saved as a versioned envelope and read back', () => {

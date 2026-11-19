@@ -20,6 +20,12 @@ export interface GameSettings {
   quality: QualityLevel;
   /** Show contextual new-player tips. */
   tips: boolean;
+  /** Camera shake strength, 0..1 (game-feel skill: shake must be adjustable). */
+  shakeStrength: number;
+  /** No head bob and no camera roll. */
+  reduceMotion: boolean;
+  /** Smooth light flicker, no flashlight stutter or muzzle light, softer damage flash. */
+  reduceFlashing: boolean;
 }
 
 /** Allowed ranges, shared with the Settings panel sliders. */
@@ -27,6 +33,7 @@ export const SETTINGS_LIMITS = {
   sensitivity: { min: 0.3, max: 3 },
   volume: { min: 0, max: 1 },
   fov: { min: 60, max: 95 },
+  shakeStrength: { min: 0, max: 1 },
 } as const;
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -36,6 +43,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
   fov: 72,
   quality: 'auto',
   tips: true,
+  shakeStrength: 0.75,
+  reduceMotion: false,
+  reduceFlashing: false,
 };
 
 export type RunMode = 'random' | 'daily';
@@ -109,6 +119,9 @@ export function sanitizeSettings(raw: unknown): GameSettings {
     fov: clampNumber(r.fov, L.fov.min, L.fov.max, DEFAULT_SETTINGS.fov),
     quality: QUALITY_LEVELS.includes(r.quality as QualityLevel) ? (r.quality as QualityLevel) : DEFAULT_SETTINGS.quality,
     tips: typeof r.tips === 'boolean' ? r.tips : DEFAULT_SETTINGS.tips,
+    shakeStrength: clampNumber(r.shakeStrength, L.shakeStrength.min, L.shakeStrength.max, DEFAULT_SETTINGS.shakeStrength),
+    reduceMotion: typeof r.reduceMotion === 'boolean' ? r.reduceMotion : DEFAULT_SETTINGS.reduceMotion,
+    reduceFlashing: typeof r.reduceFlashing === 'boolean' ? r.reduceFlashing : DEFAULT_SETTINGS.reduceFlashing,
   };
 }
 

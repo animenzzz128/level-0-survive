@@ -30,6 +30,7 @@ import {
 } from './types';
 import { TacticalWeaponViewmodel } from './weapon';
 import { BULLET_DAMAGE } from './combat';
+import { aimFov, lookScale } from './aim';
 import { GuideContext, GuideDirector } from './guide';
 import { DEFAULT_SETTINGS, GameSettings, QualityLevel, loadSeenTips, saveSeenTips } from './storage';
 
@@ -48,6 +49,8 @@ const BATTERY_CHARGE = 45;
 // (a battery walked over at 99% used to vanish for +1% while the message claimed +45%).
 const AUTO_USE_FRACTION = 0.6;
 const LOW_BATTERY_WARNINGS = [25, 10];
+// Below this, a laboured-breathing layer and a pulsing vignette warn that one more hit may be the last.
+const LOW_HEALTH = 35;
 // Stamina % at which a winded player may sprint again (still holding Shift / after releasing it)
 const WINDED_RECOVER_HOLDING = 18;
 const WINDED_RECOVER_RELEASED = 6;
@@ -88,6 +91,7 @@ declare global {
           x: number;
           z: number;
           hp: number;
+          awareness: number;
           alive: boolean;
         }>;
         tapes: Array<{ x: number; z: number; collected: boolean }>;
@@ -120,7 +124,6 @@ const _vec3A = new THREE.Vector3();
 const _vec3B = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
-const _screenCenter = new THREE.Vector2(0, 0);
 
 export class BackroomsEngine {
   private readonly container: HTMLElement;
@@ -206,7 +209,17 @@ export class BackroomsEngine {
   private hitmarkerState: HudState['hitmarkerState'] = 'none';
   private hitmarkerTimer = 0;
   private crosshairSpread = 0;
-  private screenShake = 0;
+  // Trauma-based camera shake (game-feel skill): events add trauma, it decays, shake = trauma^2.
+  private trauma = 0;
+  private shakeTime = 0;
+  // Where the last blow came from (world position) and how visible its HUD indicator still is (0-1).
+  private hitFromX = 0;
+  private hitFromZ = 0;
+  private hitIndicator = 0;
+  private killedBy: EntityArchetype | null = null;
+  // Per-fixture smoothed brightness, used when Reduce flashing is on.
+  private fixtureLevels = new Float32Array(0);
+  private lastLightTime = 0;
   private footstepTimer = 0;
   private winded = false;
   private bobPhase = 0;
@@ -264,7 +277,7 @@ export class BackroomsEngine {
   };
 
   private readonly entityHooks: EntityHooks = {
-    onAttack: (_entity, damage) => this.damagePlayer(damage),
+    onAttack: (entity, damage) => this.damagePlayer(damage, entity),
     onScreech: (entity) => entity.voice?.playScreech(entity.archetype),
     onRemoved: (entity, reason) => {
       this.director.entityRemoved(entity);
@@ -1184,14 +1197,23 @@ export class BackroomsEngine {
     }
   }
 
-  private damagePlayer(damage: number): void {
+  private damagePlayer(damage: number, source?: BackroomsEntity): void {
     if (this.phase !== 'playing') return;
     this.health = Math.max(0, this.health - damage);
     this.damageTaken += damage;
     this.damageFlash = 1.0;
-    this.screenShake = 0.045;
+    this.addTrauma(0.55);
     this.audio.playPlayerHurt();
+    if (source) {
+      // fps-shooter skill: the player must learn where damage comes from.
+      this.hitFromX = source.position.x;
+      this.hitFromZ = source.position.z;
+      this.hitIndicator = 1;
+      this.audio.playAt('claw', source.position.x, 1.3, source.position.z);
+    }
     if (this.health <= 0) {
+      this.killedBy = source?.archetype ?? null;
+      this.audio.playDeathSting();
       this.phase = 'gameover';
       this.clearTransientInputs();
       if (document.pointerLockElement === this.renderer.domElement) {
@@ -1199,6 +1221,10 @@ export class BackroomsEngine {
       }
       this.emitHud();
     }
+  }
+
+  private addTrauma(amount: number): void {
+    this.trauma = Math.min(1, this.trauma + amount);
   }
 
   /** Nearest door within reach that the player is facing (or standing in). */
@@ -1276,6 +1302,7 @@ export class BackroomsEngine {
       }
       if (door.bashTimer >= (heavy ? 1.4 : 2.6)) {
         door.burstOpen();
+        if (Math.hypot(door.x - this.playerPos.x, door.z - this.playerPos.z) < 8) this.addTrauma(0.3);
         this.onDoorChanged(door);
         this.audio.playAt('door_break', door.x, 1.2, door.z);
         this.emitNoise(_vec3A.set(door.x, 0, door.z), 12);
@@ -1345,7 +1372,10 @@ export class BackroomsEngine {
     this.hitmarkerState = 'none';
     this.hitmarkerTimer = 0;
     this.crosshairSpread = 0;
-    this.screenShake = 0;
+    this.trauma = 0;
+    this.hitIndicator = 0;
+    this.killedBy = null;
+    this.audio.setLowHealth(0);
     this.swayX = 0;
     this.swayY = 0;
     this.footstepTimer = 0;
@@ -1587,7 +1617,8 @@ export class BackroomsEngine {
 
   private onMouseMove = (e: MouseEvent): void => {
     if (this.phase !== 'playing') return;
-    const sens = (this.isAiming ? 0.0014 : 0.0022) * this.settings.sensitivity;
+    // Matched to the current zoom (fps-shooter skill), so aiming is neither faster nor slower on screen.
+    const sens = 0.0022 * this.settings.sensitivity * lookScale(this.camera.fov, this.settings.fov);
     const ySign = this.settings.invertY ? -1 : 1;
     if (this.pointerLocked) {
       if (!this.rawMouseInput) {
@@ -1666,7 +1697,9 @@ export class BackroomsEngine {
     this.shotsFired++;
     this.fireCooldown = 0.21;
     this.crosshairSpread = Math.min(1, this.crosshairSpread + 0.55);
-    this.screenShake = Math.max(this.screenShake, 0.012);
+    this.addTrauma(0.1);
+    // The shot goes where the crosshair was when the trigger was pulled: look + current recoil, without shake.
+    const shotPitch = THREE.MathUtils.clamp(this.pitch + this.recoilKick, -1.45, 1.45);
     this.recoilKick = Math.min(0.08, this.recoilKick + (this.isAiming ? 0.012 : 0.018));
 
     this.weapon.triggerFire(this.camera);
@@ -1675,8 +1708,13 @@ export class BackroomsEngine {
     // A gunshot is the loudest thing in Level 0: everything that can hear within 26 m comes to look.
     this.emitNoise(this.playerPos, 26);
 
-    // Raycast shot from camera center
-    this.raycaster.setFromCamera(_screenCenter, this.camera);
+    // Hitscan from the eye along the aim direction
+    _dir.set(
+      -Math.sin(this.yaw) * Math.cos(shotPitch),
+      Math.sin(shotPitch),
+      -Math.cos(this.yaw) * Math.cos(shotPitch),
+    );
+    this.raycaster.set(this.camera.position, _dir);
     this.raycaster.far = 42;
 
     const wallHits = this.raycaster.intersectObjects(this.wallRayMeshes, false);
@@ -1874,8 +1912,8 @@ export class BackroomsEngine {
     const turnSpeed = 2.0;
     if (this.keys['ArrowLeft']) this.targetYaw += turnSpeed * delta;
     if (this.keys['ArrowRight']) this.targetYaw -= turnSpeed * delta;
-    if (this.keys['ArrowUp']) this.targetPitch = Math.min(1.2, this.targetPitch + 1.4 * delta);
-    if (this.keys['ArrowDown']) this.targetPitch = Math.max(-1.2, this.targetPitch - 1.4 * delta);
+    if (this.keys['ArrowUp']) this.targetPitch = Math.min(1.38, this.targetPitch + 1.4 * delta);
+    if (this.keys['ArrowDown']) this.targetPitch = Math.max(-1.38, this.targetPitch - 1.4 * delta);
 
     // Apply look input directly: the old damping applied only ~55% of each mouse movement on the first frame,
     // which read as laggy, floaty aim.
@@ -1885,7 +1923,7 @@ export class BackroomsEngine {
     this.swayY = THREE.MathUtils.damp(this.swayY, 0, 10, delta);
 
     // Aim FOV interpolation
-    const targetFov = this.isAiming ? this.settings.fov - 16 : this.settings.fov;
+    const targetFov = this.isAiming ? aimFov(this.settings.fov) : this.settings.fov;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 14, delta);
       this.camera.updateProjectionMatrix();
@@ -1951,7 +1989,9 @@ export class BackroomsEngine {
     // ~95% of the kick is gone after 0.43 s; 23% is still there at the next shot (0.21 s later).
     this.recoilKick = THREE.MathUtils.damp(this.recoilKick, 0, 7, delta);
     if (this.damageFlash > 0) this.damageFlash = Math.max(0, this.damageFlash - delta * 2.2);
-    if (this.screenShake > 0) this.screenShake = Math.max(0, this.screenShake - delta * 0.08);
+    this.trauma = Math.max(0, this.trauma - 1.3 * delta);
+    if (this.hitIndicator > 0) this.hitIndicator = Math.max(0, this.hitIndicator - delta * 0.8);
+    this.audio.setLowHealth(this.health < LOW_HEALTH ? (LOW_HEALTH - this.health) / LOW_HEALTH : 0);
     if (this.hitmarkerTimer > 0) {
       this.hitmarkerTimer -= delta;
       if (this.hitmarkerTimer <= 0) this.hitmarkerState = 'none';
@@ -1982,17 +2022,25 @@ export class BackroomsEngine {
     // Apply camera position + headbob + shake
     // Head bob: accumulate phase (so changing pace never jumps the camera) and ease the amplitude in and out.
     this.bobPhase += delta * (isSprinting ? 14 : this.crouched ? 7 : 9);
-    const targetBobAmp = !isMoving ? 0 : this.crouched ? 0.018 : isSprinting ? 0.042 : 0.032;
+    const targetBobAmp =
+      !isMoving || this.settings.reduceMotion ? 0 : this.crouched ? 0.018 : isSprinting ? 0.042 : 0.032;
     this.bobAmp = THREE.MathUtils.damp(this.bobAmp, targetBobAmp, 8, delta);
     const headBobY = Math.sin(this.bobPhase) * this.bobAmp;
-    const shakeX = (Math.random() - 0.5) * this.screenShake;
-    const shakeY = (Math.random() - 0.5) * this.screenShake;
-    this.camera.position.set(
-      this.playerPos.x + shakeX,
-      this.eyeHeight + headBobY + shakeY,
-      this.playerPos.z,
+    // Shake as smooth rotation (summed sines, not per-frame random jitter), scaled by the comfort setting.
+    this.shakeTime += delta;
+    const shake = this.trauma * this.trauma * this.settings.shakeStrength;
+    const wobble = (f1: number, f2: number, phase: number) =>
+      (Math.sin(this.shakeTime * f1 + phase) + 0.5 * Math.sin(this.shakeTime * f2 + phase * 1.7)) / 1.5;
+    const shakePitch = 0.03 * shake * wobble(13.1, 29.3, 0.4);
+    const shakeYaw = 0.03 * shake * wobble(11.7, 23.9, 2.1);
+    const shakeRoll = this.settings.reduceMotion ? 0 : 0.04 * shake * wobble(9.3, 19.7, 4.2);
+    this.camera.position.set(this.playerPos.x, this.eyeHeight + headBobY, this.playerPos.z);
+    _euler.set(
+      THREE.MathUtils.clamp(this.pitch + this.recoilKick + shakePitch, -1.5, 1.5),
+      this.yaw + shakeYaw,
+      shakeRoll,
+      'YXZ',
     );
-    _euler.set(THREE.MathUtils.clamp(this.pitch + this.recoilKick, -1.45, 1.45), this.yaw, 0, 'YXZ');
     this.camera.quaternion.setFromEuler(_euler);
 
     // Weapon update
@@ -2062,9 +2110,13 @@ export class BackroomsEngine {
 
     let flashPower = this.flashlightOn ? 6.2 : 0;
     if (this.flashlightOn && nearestDist < 10.5) {
-      const flickerGate = Math.sin(timeSec * 37) * Math.cos(timeSec * 23);
-      if (flickerGate > 0.45) {
-        flashPower *= 0.28;
+      if (this.settings.reduceFlashing) {
+        flashPower *= 0.8 + 0.2 * Math.sin(timeSec * 3);
+      } else {
+        const flickerGate = Math.sin(timeSec * 37) * Math.cos(timeSec * 23);
+        if (flickerGate > 0.45) {
+          flashPower *= 0.28;
+        }
       }
     }
     this.flashlight.intensity = flashPower;
@@ -2179,6 +2231,9 @@ export class BackroomsEngine {
     if (fixtures.length === 0) return;
 
     const camPos = this.camera.position;
+    const dt = Math.min(0.1, Math.max(0, timeSec - this.lastLightTime));
+    this.lastLightTime = timeSec;
+    if (this.fixtureLevels.length !== fixtures.length) this.fixtureLevels = new Float32Array(fixtures.length).fill(1);
 
     // Update fixture flicker brightness & find 8 nearest active fixtures
     const candidates: Array<{ idx: number; distSq: number; intensity: number }> = [];
@@ -2194,7 +2249,11 @@ export class BackroomsEngine {
         const wave =
           Math.sin(timeSec * 19 + f.phaseOffset) *
           Math.sin(timeSec * 7.3 + f.phaseOffset * 1.7);
-        const factor = wave > 0.28 ? 0.14 : wave < -0.55 ? 0.35 : 1.0;
+        let factor = wave > 0.28 ? 0.14 : wave < -0.55 ? 0.35 : 1.0;
+        if (this.settings.reduceFlashing) {
+          factor = THREE.MathUtils.damp(this.fixtureLevels[i], factor, 4, dt);
+          this.fixtureLevels[i] = factor;
+        }
         intensity *= factor;
 
         if (this.lightPanelInstanced) {
@@ -2228,6 +2287,12 @@ export class BackroomsEngine {
         pl.intensity = 0;
       }
     }
+  }
+
+  /** Bearing of the last attacker relative to the view: 0 ahead, +90 right, +-180 behind (CSS-clockwise). */
+  private hitBearingDeg(): number {
+    const angleTo = Math.atan2(-(this.hitFromX - this.playerPos.x), -(this.hitFromZ - this.playerPos.z));
+    return (Math.atan2(Math.sin(this.yaw - angleTo), Math.cos(this.yaw - angleTo)) * 180) / Math.PI;
   }
 
   /** Would picking this supply up now deliver most of its value? */
@@ -2282,6 +2347,7 @@ export class BackroomsEngine {
     this.settings = { ...settings };
     this.settingsApplied = true;
     this.audio.setVolume(settings.volume);
+    this.weapon?.setMuzzleLightEnabled(!settings.reduceFlashing);
     this.guide.enabled = settings.tips;
     if (this.phase !== 'playing' && this.camera) {
       this.camera.fov = settings.fov;
@@ -2414,6 +2480,10 @@ export class BackroomsEngine {
       shotsHit: this.shotsHit,
       damageTaken: Math.round(this.damageTaken),
       damageFlash: this.damageFlash,
+      damageDirectionDeg: this.hitIndicator > 0 ? this.hitBearingDeg() : null,
+      damageDirectionAlpha: this.hitIndicator,
+      killedBy: this.killedBy,
+      reduceFlashing: this.settings.reduceFlashing,
       hitmarkerState: this.hitmarkerState,
       crosshairSpread: this.crosshairSpread,
       pointerLocked: this.pointerLocked,
@@ -2465,6 +2535,7 @@ export class BackroomsEngine {
           x: e.position.x,
           z: e.position.z,
           hp: e.health,
+          awareness: e.awarenessLevel,
           alive: e.alive,
         })),
         tapes: this.pickups
@@ -2595,7 +2666,7 @@ export class BackroomsEngine {
       setAim: (aim: boolean) => {
         this.isAiming = aim;
         this.weapon.snapAim(aim);
-        this.camera.fov = aim ? 56 : 72;
+        this.camera.fov = aim ? aimFov(this.settings.fov) : this.settings.fov;
         this.camera.updateProjectionMatrix();
         this.renderer.render(this.scene, this.camera);
         this.emitHud();
