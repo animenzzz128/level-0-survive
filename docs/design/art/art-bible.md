@@ -548,6 +548,8 @@ root
 | `prop_cone`、`prop_fallen_tile` | 装饰 | P3 |
 | `tex_wallpaper`、`tex_carpet`、`tex_ceiling`、`decal_*` | 环境贴图 | P1 |
 
+**概念图**：2026-11-19 收到 20 张，逐张审查意见和要改的地方见 [concepts/README.md](concepts/README.md)。
+
 **建议顺序**：先做 **Skin-Stealer**。它最接近原著、和墙纸同色的设定最能检验整套美术方向，而且是人形，绑骨流程最标准。定稿后再做 Howler 和 Smiler。
 
 ---

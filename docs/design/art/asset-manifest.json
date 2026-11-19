@@ -9,7 +9,7 @@
       "role": "entity: mimic that hides as Almond Water",
       "priority": "P0 (do first)",
       "path": "public/assets/models/ent_skin_stealer.glb",
-      "status": "planned",
+      "status": "concept approved with notes: sucker seams not stitches, raised right shoulder, sculpt a generic stolen face",
       "placeholder_in_game": "procedural primitives in entities.ts (buildBruteMesh)",
       "technical": {
         "format": "glb (meshopt, textures webp/ktx2)",
@@ -75,10 +75,10 @@
         "height 2.27 m"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -88,14 +88,21 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/skin-stealer/A_hero.webp",
+        "docs/design/art/concepts/skin-stealer/B_turnaround.webp",
+        "docs/design/art/concepts/skin-stealer/C_detail.webp",
+        "docs/design/art/concepts/skin-stealer/D_jumpscare_wear_you.webp",
+        "docs/design/art/concepts/skin-stealer/E_reveal.webp"
+      ]
     },
     {
       "id": "ent_howler",
       "role": "entity: blind sound hunter",
       "priority": "P0",
       "path": "public/assets/models/ent_howler.glb",
-      "status": "planned",
+      "status": "concept approved with notes: reverse knees, hunched stance, 3 claws",
       "placeholder_in_game": "procedural primitives in entities.ts (buildHowlerMesh)",
       "technical": {
         "format": "glb (meshopt, textures webp/ktx2)",
@@ -160,10 +167,10 @@
         "height 2.39 m"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -173,14 +180,20 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/howler/A_hero.webp",
+        "docs/design/art/concepts/howler/B_turnaround.webp",
+        "docs/design/art/concepts/howler/C_detail.webp",
+        "docs/design/art/concepts/howler/D_jumpscare_short_circuit.webp"
+      ]
     },
     {
       "id": "ent_smiler",
       "role": "entity: face in the dark, banished by the flashlight",
       "priority": "P0",
       "path": "public/assets/models/ent_smiler.glb",
-      "status": "planned",
+      "status": "concept approved with notes: needle teeth from B everywhere, grin wider than the head",
       "placeholder_in_game": "procedural primitives + canvas face in entities.ts (buildSmilerMesh)",
       "technical": {
         "format": "glb (meshopt, textures webp/ktx2)",
@@ -241,10 +254,10 @@
         "morph targets: grin_wide, grin_open, eyes_narrow, face_tear, face_collapse"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -254,14 +267,19 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/smiler/A_hero.webp",
+        "docs/design/art/concepts/smiler/B_turnaround.webp",
+        "docs/design/art/concepts/smiler/D_jumpscare_lights_out.webp"
+      ]
     },
     {
       "id": "vm_pistol",
       "role": "first-person suppressed 9 mm with arms",
       "priority": "P1",
       "path": "public/assets/models/vm_pistol.glb",
-      "status": "planned",
+      "status": "concept: redo the pistol (too close to a real commercial pistol); hands approved",
       "placeholder_in_game": "procedural primitives in weapon.ts",
       "technical": {
         "format": "glb",
@@ -310,10 +328,10 @@
         "dark work gloves"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -323,14 +341,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/viewmodel/pistol_and_hands.webp"
+      ]
     },
     {
       "id": "prop_almond_water",
       "role": "pickup: health (+ Skin-Stealer disguise variant)",
       "priority": "P1",
       "path": "public/assets/models/prop_almond_water.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "cylinders in BackroomsEngine.buildPickups",
       "technical": {
         "format": "glb",
@@ -350,10 +371,10 @@
         "screw cap with carry loop"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -363,14 +384,18 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/pickups.webp",
+        "docs/design/art/concepts/skin-stealer/E_reveal.webp"
+      ]
     },
     {
       "id": "prop_vhs",
       "role": "objective: VHS tape on a table",
       "priority": "P1",
       "path": "public/assets/models/prop_vhs.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "boxes in BackroomsEngine.buildPickups",
       "technical": {
         "format": "glb",
@@ -389,10 +414,10 @@
         "blank label area (label text is made in code)"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -402,14 +427,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/pickups.webp"
+      ]
     },
     {
       "id": "prop_battery",
       "role": "pickup: flashlight battery",
       "priority": "P1",
       "path": "public/assets/models/prop_battery.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "cylinders in BackroomsEngine.buildPickups",
       "technical": {
         "format": "glb",
@@ -425,10 +453,10 @@
         "bright yellow band (named in tips)"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -438,14 +466,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/pickups.webp"
+      ]
     },
     {
       "id": "prop_ammo_can",
       "role": "pickup: ammunition",
       "priority": "P1",
       "path": "public/assets/models/prop_ammo_can.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "boxes in BackroomsEngine.buildPickups",
       "technical": {
         "format": "glb",
@@ -462,10 +493,10 @@
         "no stencil text"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -475,14 +506,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/pickups.webp"
+      ]
     },
     {
       "id": "prop_office_table",
       "role": "furniture: tape table",
       "priority": "P1",
       "path": "public/assets/models/prop_office_table.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "BackroomsEngine.buildOfficeTable",
       "technical": {
         "format": "glb",
@@ -498,10 +532,10 @@
         "beige wood-grain laminate top"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -511,14 +545,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/furniture_and_doors.webp"
+      ]
     },
     {
       "id": "prop_desk_hide",
       "role": "furniture: hiding desk",
       "priority": "P1",
       "path": "public/assets/models/prop_desk_hide.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "BackroomsEngine.buildOfficeTable(modestyPanel)",
       "technical": {
         "format": "glb",
@@ -535,10 +572,10 @@
         "solid modesty panel"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -548,14 +585,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/furniture_and_doors.webp"
+      ]
     },
     {
       "id": "prop_door",
       "role": "level: closable corridor door",
       "priority": "P1",
       "path": "public/assets/models/prop_door.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "doors.ts",
       "technical": {
         "format": "glb",
@@ -576,10 +616,10 @@
         "no window"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -589,14 +629,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/furniture_and_doors.webp"
+      ]
     },
     {
       "id": "prop_exit_door",
       "role": "level: Sector 00 exit",
       "priority": "P1",
       "path": "public/assets/models/prop_exit_door.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "BackroomsEngine.buildExitDoor",
       "technical": {
         "format": "glb",
@@ -616,10 +659,10 @@
         "keypad"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -629,14 +672,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/furniture_and_doors.webp"
+      ]
     },
     {
       "id": "prop_troffer",
       "role": "level: ceiling light (instanced)",
       "priority": "P1",
       "path": "public/assets/models/prop_troffer.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "instanced boxes/planes",
       "technical": {
         "format": "glb",
@@ -658,10 +704,10 @@
         "dead insects"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -671,14 +717,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/troffer_states.webp"
+      ]
     },
     {
       "id": "lm_vending",
       "role": "landmark",
       "priority": "P2",
       "path": "public/assets/models/lm_vending.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
         "format": "glb",
@@ -695,10 +744,10 @@
         "no brand"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -708,14 +757,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/landmarks.webp"
+      ]
     },
     {
       "id": "lm_cooler",
       "role": "landmark",
       "priority": "P2",
       "path": "public/assets/models/lm_cooler.glb",
-      "status": "planned",
+      "status": "concept approved (pick one of the two variants)",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
         "format": "glb",
@@ -731,10 +783,10 @@
         "blue glowing bottle"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -744,14 +796,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/landmarks.webp"
+      ]
     },
     {
       "id": "lm_crt",
       "role": "landmark",
       "priority": "P2",
       "path": "public/assets/models/lm_crt.glb",
-      "status": "planned",
+      "status": "concept approved",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
         "format": "glb",
@@ -767,10 +822,10 @@
         "CRT with green static"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -780,14 +835,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/landmarks.webp"
+      ]
     },
     {
       "id": "lm_neon",
       "role": "landmark",
       "priority": "P2",
       "path": "public/assets/models/lm_neon.glb",
-      "status": "planned",
+      "status": "concept approved (pick one board; letters come from the code texture)",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
         "format": "glb",
@@ -803,10 +861,10 @@
         "pink neon tubes (letters from code texture)"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -816,7 +874,10 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/props/landmarks.webp"
+      ]
     },
     {
       "id": "prop_cone",
@@ -893,7 +954,7 @@
       "role": "environment: wall",
       "priority": "P1",
       "path": "public/assets/textures/tex_wallpaper",
-      "status": "planned",
+      "status": "reference approved with notes: fix the left-edge seam, check 3x3 tiling",
       "placeholder_in_game": "canvas textures in textures.ts",
       "technical": {
         "format": "png source -> ktx2/webp",
@@ -907,10 +968,10 @@
         "original faint lattice motif, contrast <= 12%"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -920,14 +981,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/textures/wallpaper.webp"
+      ]
     },
     {
       "id": "tex_carpet",
       "role": "environment: floor",
       "priority": "P1",
       "path": "public/assets/textures/tex_carpet",
-      "status": "planned",
+      "status": "reference approved with notes: move wet patches to decals",
       "placeholder_in_game": "canvas textures in textures.ts",
       "technical": {
         "format": "png source -> ktx2/webp",
@@ -941,10 +1005,10 @@
         "wet patches as decals"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -954,14 +1018,17 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/textures/carpet.webp"
+      ]
     },
     {
       "id": "tex_ceiling",
       "role": "environment: ceiling",
       "priority": "P1",
       "path": "public/assets/textures/tex_ceiling",
-      "status": "planned",
+      "status": "reference: redo with an aligned grid (tiles are staggered like bricks)",
       "placeholder_in_game": "canvas textures in textures.ts",
       "technical": {
         "format": "png source -> ktx2/webp",
@@ -975,10 +1042,10 @@
         "#7e7967 grid"
       ],
       "source": {
-        "kind": "authored-in-blender (concept: to be decided, ai-generated or hand-drawn)",
+        "kind": "ai-generated concept reference (tool and date not yet recorded); final asset to be authored in Blender",
         "url_or_tool": "",
-        "creator": "",
-        "created_at": "",
+        "creator": "Jacky Yao (direction, selection)",
+        "created_at": "2026-11-19 (received)",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
         "prompt_or_source_record": "docs/design/art/prompts.md"
@@ -988,7 +1055,10 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "concepts": [
+        "docs/design/art/concepts/textures/ceiling.webp"
+      ]
     },
     {
       "id": "decal_set",
