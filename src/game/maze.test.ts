@@ -1,5 +1,6 @@
 // Level generation invariants, checked over many seeds. Run with `npm test`.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CELL_SIZE,
   MAZE_SIZE,
@@ -140,6 +141,39 @@ check(-1, 'layouts vary between seeds', () => {
   assert.ok(tapeLayouts.size > SEEDS * 0.9, `only ${tapeLayouts.size} distinct tape layouts`);
   assert.equal(spawnCorners.size, 4, 'not every spawn corner is used');
   assert.equal(exitSides.size, 4, 'not every exit wall is used');
+});
+
+// Seeds must build the same level in every browser and every build. Pin a few layouts so that any change
+// to generation is deliberate (and comes with a records migration, since daily layouts change too).
+function layoutHash(seed: number): string {
+  const l = generateBackroomsLevel(seed);
+  const parts = [
+    Array.from(l.grid).join(''),
+    l.pickups.map((p) => `${p.kind}:${p.x.toFixed(2)},${p.z.toFixed(2)}`).join(';'),
+    l.doors.map((d) => `${d.gx},${d.gz},${d.axis}`).join(';'),
+    l.desks.map((d) => `${d.x.toFixed(2)},${d.z.toFixed(2)}`).join(';'),
+    l.entitySpawns.map((e) => `${e.x.toFixed(2)},${e.z.toFixed(2)}`).join(';'),
+    `${l.spawnCell.gx},${l.spawnCell.gz}|${l.exitCell.gx},${l.exitCell.gz}|${l.exitRotY.toFixed(3)}`,
+    l.fixtures.map((f) => f.flickerMode[0]).join(''),
+  ].join('#');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < parts.length; i++) {
+    h ^= parts.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+check(-1, 'pinned layouts are unchanged', () => {
+  const pinned: Record<number, string> = { 1: 'e42bd940', 202611: 'e32b1198', 1947985822: 'a3d3bdbc' };
+  for (const [seed, hash] of Object.entries(pinned)) {
+    assert.equal(layoutHash(Number(seed)), hash, `layout for seed ${seed} changed`);
+  }
+});
+
+check(-1, 'generation never shuffles with Array.sort and a random comparator', () => {
+  const source = readFileSync(new URL('./maze.ts', import.meta.url), 'utf8');
+  assert.ok(!/\.sort\(\s*\(\)\s*=>/.test(source), 'engine-dependent shuffle found in maze.ts');
 });
 
 if (failures > 0) {

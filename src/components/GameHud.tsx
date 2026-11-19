@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Volume2, VolumeX, Flashlight, Crosshair } from 'lucide-react';
 import { DifficultyMode, HudState } from '../game/types';
 import { RunMode } from '../game/storage';
@@ -31,6 +31,8 @@ interface GameHudProps {
   onRequestLock: () => void;
   onOpenHowTo: () => void;
   onOpenSettings: () => void;
+  /** A dialog is open on top: the HUD must not take focus or clicks (game-ui-ux: focus stays in the modal). */
+  inert?: boolean;
 }
 
 function formatTimecode(seconds: number): string {
@@ -64,7 +66,27 @@ export const GameHud: React.FC<GameHudProps> = ({
   onRequestLock,
   onOpenHowTo,
   onOpenSettings,
+  inert = false,
 }) => {
+  const startRef = useRef<HTMLButtonElement>(null);
+  const resumeRef = useRef<HTMLButtonElement>(null);
+  const resultTitleRef = useRef<HTMLHeadingElement>(null);
+
+  // Every screen puts keyboard focus somewhere sensible when it appears. The results screen focuses its
+  // heading, not "Play Again": a player still holding Space from firing would otherwise restart on release.
+  useEffect(() => {
+    if (inert) return;
+    const target =
+      hud.phase === 'title'
+        ? startRef.current
+        : hud.phase === 'paused'
+          ? resumeRef.current
+          : hud.phase === 'victory' || hud.phase === 'gameover'
+            ? resultTitleRef.current
+            : null;
+    target?.focus({ preventScroll: true });
+  }, [hud.phase, inert]);
+
   const accuracy =
     hud.shotsFired > 0 ? Math.round((hud.shotsHit / hud.shotsFired) * 100) : 0;
 
@@ -72,7 +94,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const exitDeg = Math.round((hud.exitBearingRad * 180) / Math.PI);
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between overflow-hidden">
+    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between overflow-hidden" inert={inert}>
       {/* Subtle VHS scanline & dark vignette texture (no backdrop-filter!) */}
       <div className="vhs-scanlines pointer-events-none absolute inset-0 opacity-45" />
       <div
@@ -284,16 +306,22 @@ export const GameHud: React.FC<GameHudProps> = ({
             {/* Hitmarker */}
             {hud.hitmarkerState !== 'none' && (
               <div
-                className={`absolute h-6 w-6 ${
+                className={`absolute ${hud.hitmarkerState === 'head' ? 'h-8 w-8' : 'h-6 w-6'} ${
                   hud.hitmarkerState === 'kill'
                     ? 'text-[#ef4444]'
                     : hud.hitmarkerState === 'immune'
                       ? 'text-[#7d8fa3]'
-                      : 'text-[#fff7d6]'
+                      : hud.hitmarkerState === 'head'
+                        ? 'text-[#ffc861]'
+                        : 'text-[#fff7d6]'
                 }`}
               >
-                <span className="absolute left-1/2 top-1/2 h-3 w-[2px] -translate-x-1/2 -translate-y-1/2 rotate-45 bg-current" />
-                <span className="absolute left-1/2 top-1/2 h-3 w-[2px] -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-current" />
+                <span
+                  className={`absolute left-1/2 top-1/2 ${hud.hitmarkerState === 'head' ? 'h-4 w-[3px]' : 'h-3 w-[2px]'} -translate-x-1/2 -translate-y-1/2 rotate-45 bg-current`}
+                />
+                <span
+                  className={`absolute left-1/2 top-1/2 ${hud.hitmarkerState === 'head' ? 'h-4 w-[3px]' : 'h-3 w-[2px]'} -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-current`}
+                />
               </div>
             )}
 
@@ -373,16 +401,16 @@ export const GameHud: React.FC<GameHudProps> = ({
 
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between text-[11px] text-[#9e9472]">
-                    <span className="flex items-center gap-1">
+                    <span className={`flex items-center gap-1 ${hud.battery <= 25 ? 'text-[#f87171]' : ''}`}>
                       <Flashlight className="h-3 w-3" />
-                      Light
+                      {hud.battery <= 25 ? 'Light LOW' : 'Light'}
                     </span>
                     <span className="font-mono-hud">{hud.battery}%</span>
                   </div>
                   <div className="h-1 w-full bg-[#292519]">
                     <div
                       className={`h-full ${
-                        hud.flashlightOn ? 'bg-[#f5d061]' : 'bg-[#5c553e]'
+                        hud.battery <= 25 ? 'bg-[#dc2626]' : hud.flashlightOn ? 'bg-[#f5d061]' : 'bg-[#5c553e]'
                       }`}
                       style={{ width: `${hud.battery}%` }}
                     />
@@ -488,6 +516,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectMode('random')}
+                  aria-pressed={selectedMode === 'random'}
                   className={`px-4 py-1.5 text-xs font-medium transition-colors ${
                     selectedMode === 'random' ? 'bg-[#d4be74] text-[#0e0d09]' : 'text-[#bfb693] hover:text-white'
                   }`}
@@ -497,6 +526,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectMode('daily')}
+                  aria-pressed={selectedMode === 'daily'}
                   className={`px-4 py-1.5 text-xs font-medium transition-colors ${
                     selectedMode === 'daily' ? 'bg-[#d4be74] text-[#0e0d09]' : 'text-[#bfb693] hover:text-white'
                   }`}
@@ -513,6 +543,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectDifficulty('standard')}
+                  aria-pressed={selectedDifficulty === 'standard'}
                   className={`px-4 py-1.5 text-xs font-medium transition-colors ${
                     selectedDifficulty === 'standard'
                       ? 'bg-[#d4be74] text-[#0e0d09]'
@@ -524,6 +555,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectDifficulty('nightmare')}
+                  aria-pressed={selectedDifficulty === 'nightmare'}
                   className={`px-4 py-1.5 text-xs font-medium transition-colors ${
                     selectedDifficulty === 'nightmare'
                       ? 'bg-[#b91c1c] text-white'
@@ -538,6 +570,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             <div className="mt-7 flex flex-wrap items-center gap-4">
               <button
                 type="button"
+                ref={startRef}
                 onClick={onStart}
                 className="bg-[#e8b838] px-7 py-3 text-sm font-semibold tracking-wide text-[#0d0c08] transition-colors hover:bg-[#f5cb5c]"
               >
@@ -588,6 +621,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             <div className="mt-6 flex flex-col gap-2.5">
               <button
                 type="button"
+                ref={resumeRef}
                 onClick={onResume}
                 className="w-full bg-[#e8b838] px-5 py-2.5 text-sm font-semibold text-[#0d0c08] hover:bg-[#f5cb5c]"
               >
@@ -630,7 +664,11 @@ export const GameHud: React.FC<GameHudProps> = ({
             >
               {hud.phase === 'victory' ? 'EXTRACTION CONFIRMED' : 'SIGNAL LOST // CAM-04'}
             </div>
-            <h2 className="font-display mt-1 text-4xl font-bold tracking-tight text-[#f7f1dc]">
+            <h2
+              ref={resultTitleRef}
+              tabIndex={-1}
+              className="font-display mt-1 text-4xl font-bold tracking-tight text-[#f7f1dc] outline-none"
+            >
               {hud.phase === 'victory' ? 'Escaped Level 0' : 'Lost in the Maze'}
             </h2>
             <p className="mt-2 text-sm text-[#cfc6a6]">

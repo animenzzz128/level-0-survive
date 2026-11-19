@@ -76,6 +76,20 @@ export default function App() {
     null,
   );
   const dailyLabel = todayLabel();
+  // The control that opened a dialog gets focus back when it closes.
+  const panelOpenerRef = useRef<HTMLElement | null>(null);
+  const openPanel = (next: 'howto' | 'settings') => {
+    const active = document.activeElement;
+    panelOpenerRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
+    setPanel(next);
+  };
+  const closePanel = () => {
+    setPanel('none');
+    const opener = panelOpenerRef.current;
+    panelOpenerRef.current = null;
+    // After the HUD becomes interactive again (its own focus effect runs first).
+    if (opener) window.setTimeout(() => opener.focus({ preventScroll: true }), 0);
+  };
 
   useEffect(() => {
     const container = canvasContainerRef.current;
@@ -159,15 +173,16 @@ export default function App() {
         onReturnTitle={() => engineRef.current?.returnToTitle()}
         onToggleMute={() => engineRef.current?.toggleMute()}
         onRequestLock={() => engineRef.current?.requestLock()}
-        onOpenHowTo={() => setPanel('howto')}
-        onOpenSettings={() => setPanel('settings')}
+        onOpenHowTo={() => openPanel('howto')}
+        onOpenSettings={() => openPanel('settings')}
+        inert={panel !== 'none'}
       />
 
       {panel === 'howto' && (
         <HowToPlay
           onClose={() => {
             markHowToSeen();
-            setPanel('none');
+            closePanel();
           }}
         />
       )}
@@ -180,7 +195,7 @@ export default function App() {
             resetGuide();
             engineRef.current?.resetTips();
           }}
-          onClose={() => setPanel('none')}
+          onClose={closePanel}
         />
       )}
     </main>

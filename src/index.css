@@ -32,3 +32,11 @@
     rgba(0, 0, 0, 0.14) 4px
   );
 }
+
+/* Visible keyboard focus on every control (game-ui-ux: a focused control must be obvious). */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid #e8b838;
+  outline-offset: 2px;
+}

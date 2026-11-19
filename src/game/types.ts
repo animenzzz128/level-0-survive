@@ -66,7 +66,7 @@ export interface HudState {
   shotsHit: number;
   damageTaken: number;
   damageFlash: number;
-  hitmarkerState: 'none' | 'hit' | 'kill' | 'immune';
+  hitmarkerState: 'none' | 'hit' | 'head' | 'kill' | 'immune';
   crosshairSpread: number;
   pointerLocked: boolean;
   /** Pointer lock was refused and has never worked in this page (e.g. sandboxed iframe). */

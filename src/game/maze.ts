@@ -131,6 +131,17 @@ const QUADRANT_SPLIT = (MAZE_SIZE - 1) / 2;
 export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   const rng = createRng(seed);
   const pick = <T,>(items: T[]): T => items[Math.floor(rng() * items.length)];
+  // Seeded Fisher-Yates. Array.sort with a random comparator is engine-dependent (V8, SpiderMonkey and
+  // JavaScriptCore call the comparator a different number of times), so the same seed used to build a
+  // different level in Chrome than in Firefox or Safari - breaking daily runs and "retry this layout".
+  const shuffle = <T,>(items: T[]): T[] => {
+    const out = [...items];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
   const grid = new Uint8Array(MAZE_SIZE * MAZE_SIZE);
   grid.fill(1);
 
@@ -339,7 +350,7 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   }
 
   // Scarce supplies spread across walkable cells: ammo, Almond Water (health) and flashlight batteries
-  const shuffled = [...walkableCells].sort(() => rng() - 0.5);
+  const shuffled = shuffle(walkableCells);
   let supplyCursor = 0;
   for (const [kind, count] of PICKUP_COUNTS) {
     let placed = 0;
@@ -378,7 +389,7 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
 
   // Entity spawns at medium/far distance from player spawn
   const entitySpawns: Array<{ x: number; z: number }> = [];
-  const farCells = walkableCells.filter((c) => c.dist >= 8).sort(() => rng() - 0.5);
+  const farCells = shuffle(walkableCells.filter((c) => c.dist >= 8));
   for (const c of farCells) {
     const k = key(c.gx, c.gz);
     if (usedKeys.has(k)) continue;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { GameSettings, QualityLevel } from '../game/storage';
+import { GameSettings, QualityLevel, SETTINGS_LIMITS } from '../game/storage';
 
 interface SettingsPanelProps {
   settings: GameSettings;
@@ -89,6 +89,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-title"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
     >
       <div className="max-h-full w-full max-w-md overflow-y-auto border border-[#d4be74]/30 bg-[#12100a] p-6">
         <h2 id="settings-title" className="font-display text-3xl font-semibold tracking-wide text-[#f7f1dc]">
@@ -99,8 +105,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           <Slider
             label="Mouse sensitivity"
             value={settings.sensitivity}
-            min={0.3}
-            max={3}
+            min={SETTINGS_LIMITS.sensitivity.min}
+            max={SETTINGS_LIMITS.sensitivity.max}
             step={0.05}
             display={`${settings.sensitivity.toFixed(2)}x`}
             onChange={(v) => set('sensitivity', v)}
@@ -123,8 +129,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           <Slider
             label="Field of view"
             value={settings.fov}
-            min={60}
-            max={95}
+            min={SETTINGS_LIMITS.fov.min}
+            max={SETTINGS_LIMITS.fov.max}
             step={1}
             display={`${settings.fov}°`}
             onChange={(v) => set('fov', v)}

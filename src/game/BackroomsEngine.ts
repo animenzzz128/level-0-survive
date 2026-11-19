@@ -29,6 +29,7 @@ import {
   PickupKind,
 } from './types';
 import { TacticalWeaponViewmodel } from './weapon';
+import { BULLET_DAMAGE } from './combat';
 import { GuideContext, GuideDirector } from './guide';
 import { DEFAULT_SETTINGS, GameSettings, QualityLevel, loadSeenTips, saveSeenTips } from './storage';
 
@@ -41,6 +42,12 @@ const TAPE_LOGS = [
   'If you are hearing this, the door is open, and they know. Do not stop for the water. Not all of it is water.',
 ];
 const TAPE_LOG_CPS = 40;
+const WATER_HEAL = 35;
+const BATTERY_CHARGE = 45;
+// Supplies are used on contact only when at least 60% of their value would land; otherwise they stay put
+// (a battery walked over at 99% used to vanish for +1% while the message claimed +45%).
+const AUTO_USE_FRACTION = 0.6;
+const LOW_BATTERY_WARNINGS = [25, 10];
 // Stamina % at which a winded player may sprint again (still holding Shift / after releasing it)
 const WINDED_RECOVER_HOLDING = 18;
 const WINDED_RECOVER_RELEASED = 6;
@@ -54,6 +61,9 @@ interface PickupInstance {
   z: number;
   baseY: number;
   collected: boolean;
+  /** Tape beacon light. Dimmed to 0 on pickup, never hidden: hiding a light changes the light count,
+   *  which recompiles every lit shader (a hitch on each tape). */
+  light?: THREE.PointLight;
 }
 
 interface ImpactParticle {
@@ -281,6 +291,15 @@ export class BackroomsEngine {
   private notification: HudNotification | null = null;
   private notificationTimer = 0;
   private autoReloadTimer: number | null = null;
+  /** Lowest low-battery warning already shown this run (100 = none yet). */
+  private batteryWarnedAt = 100;
+  // Camera recoil is an offset on top of the player's aim that decays back to zero (fps-shooter skill:
+  // writing it into the look angle made every magazine drag the view 12 degrees up for good).
+  private recoilKick = 0;
+  // A click that lands in the last 0.1 s of the fire cooldown is kept and fired when the gun is ready.
+  private fireQueued = false;
+  // Right mouse held: aiming resumes by itself after a reload instead of needing a fresh click.
+  private aimHeld = false;
   private lastNearestEntityDist = 99;
   private lastNearestEntityLabel: string | null = null;
 
@@ -873,6 +892,7 @@ export class BackroomsEngine {
       grp.position.set(p.x, 0, p.z);
 
       let rotTarget: THREE.Object3D = grp;
+      let tapeLight: THREE.PointLight | undefined;
       let baseY = 0;
 
       if (p.kind === 'tape') {
@@ -892,8 +912,11 @@ export class BackroomsEngine {
         reelR.position.set(0.085, 0, -0.025);
 
         const beacon = new THREE.PointLight(0xffa726, 1.35, 5.2, 1.8);
-        beacon.position.y = 0.28;
-        vhs.add(shell, label, reelL, reelR, beacon);
+        // On the pickup group, not the cassette: the cassette is hidden on pickup, the light only dims.
+        beacon.position.y = 0.92 + 0.28;
+        grp.add(beacon);
+        tapeLight = beacon;
+        vhs.add(shell, label, reelL, reelR);
         grp.add(vhs);
         rotTarget = vhs;
         baseY = 0.92;
@@ -962,6 +985,7 @@ export class BackroomsEngine {
         kind: p.kind,
         group: grp,
         rotTarget,
+        light: tapeLight,
         x: p.x,
         z: p.z,
         baseY,
@@ -1262,6 +1286,8 @@ export class BackroomsEngine {
   private clearTransientInputs(): void {
     this.keys = {};
     this.isAiming = false;
+    this.aimHeld = false;
+    this.fireQueued = false;
     this.isDraggingLook = false;
     if (this.autoReloadTimer !== null) {
       window.clearTimeout(this.autoReloadTimer);
@@ -1290,6 +1316,7 @@ export class BackroomsEngine {
     this.stamina = 100;
     this.winded = false;
     this.battery = 100;
+    this.batteryWarnedAt = 100;
     this.flashlightOn = true;
 
     // Survival, not a shooting gallery: one spare magazine (half on Nightmare) and three small crates.
@@ -1299,6 +1326,7 @@ export class BackroomsEngine {
     this.reloadTimer = 0;
     this.fireCooldown = 0;
     this.isAiming = false;
+    this.recoilKick = 0;
 
     this.crouched = false;
     this.hidden = false;
@@ -1517,7 +1545,8 @@ export class BackroomsEngine {
       this.interactDoor();
     } else if (e.code === 'Space') {
       e.preventDefault();
-      this.fireWeapon();
+      // Semi-automatic: a held key's auto-repeat must not turn the pistol full-auto.
+      if (!e.repeat) this.fireWeapon();
     }
   };
 
@@ -1542,6 +1571,7 @@ export class BackroomsEngine {
       }
       this.fireWeapon();
     } else if (e.button === 2) {
+      this.aimHeld = true;
       if (!this.isReloading) this.isAiming = true;
     }
   };
@@ -1550,6 +1580,7 @@ export class BackroomsEngine {
     if (e.button === 0) {
       this.isDraggingLook = false;
     } else if (e.button === 2) {
+      this.aimHeld = false;
       this.isAiming = false;
     }
   };
@@ -1604,13 +1635,20 @@ export class BackroomsEngine {
     this.isReloading = true;
     this.reloadTimer = 1.25;
     this.isAiming = false;
+    this.fireQueued = false;
     this.weapon.triggerReload(1.25);
     this.audio.playReload();
     this.emitHud();
   }
 
   private fireWeapon(): void {
-    if (this.phase !== 'playing' || this.isReloading || this.fireCooldown > 0) return;
+    if (this.phase !== 'playing' || this.isReloading) return;
+    if (this.fireCooldown > 0) {
+      // Pressed a moment early: remember it instead of silently eating the click.
+      if (this.fireCooldown <= 0.1) this.fireQueued = true;
+      return;
+    }
+    this.fireQueued = false;
 
     if (this.ammoInMag <= 0) {
       this.fireCooldown = 0.2;
@@ -1629,7 +1667,7 @@ export class BackroomsEngine {
     this.fireCooldown = 0.21;
     this.crosshairSpread = Math.min(1, this.crosshairSpread + 0.55);
     this.screenShake = Math.max(this.screenShake, 0.012);
-    this.targetPitch = THREE.MathUtils.clamp(this.targetPitch + 0.018, -1.38, 1.38);
+    this.recoilKick = Math.min(0.08, this.recoilKick + (this.isAiming ? 0.012 : 0.018));
 
     this.weapon.triggerFire(this.camera);
     this.audio.playGunshot();
@@ -1655,7 +1693,7 @@ export class BackroomsEngine {
       const targetEntity = this.entities.find((e) => e.id === entityId);
 
       if (targetEntity) {
-        const res = targetEntity.applyDamage(34, isHead);
+        const res = targetEntity.applyDamage(BULLET_DAMAGE, isHead);
         if (res.immune) {
           this.hitmarkerState = 'immune';
           this.hitmarkerTimer = 0.3;
@@ -1666,10 +1704,12 @@ export class BackroomsEngine {
           }
         } else if (res.hit) {
           this.shotsHit++;
-          this.hitmarkerState = res.killed ? 'kill' : 'hit';
-          this.hitmarkerTimer = 0.22;
-          this.audio.playHitmarker(res.killed ? 'kill' : 'hit');
-          this.spawnImpactParticles(hit.point, 0x991b1b, 10);
+          // Headshots get their own marker and sound; before, they only showed up in the kill message.
+          const marker = res.killed ? 'kill' : res.headshot ? 'head' : 'hit';
+          this.hitmarkerState = marker;
+          this.hitmarkerTimer = marker === 'head' ? 0.3 : 0.22;
+          this.audio.playHitmarker(marker);
+          this.spawnImpactParticles(hit.point, 0x991b1b, res.headshot ? 18 : 10);
           if (res.revealed) targetEntity.voice?.playScreech(targetEntity.archetype);
 
           if (res.killed) {
@@ -1906,6 +1946,10 @@ export class BackroomsEngine {
 
     // Timers & cooldowns
     if (this.fireCooldown > 0) this.fireCooldown -= delta;
+    if (this.fireQueued && this.fireCooldown <= 0) this.fireWeapon();
+    if (this.aimHeld && !this.isReloading && !this.isAiming) this.isAiming = true;
+    // ~95% of the kick is gone after 0.43 s; 23% is still there at the next shot (0.21 s later).
+    this.recoilKick = THREE.MathUtils.damp(this.recoilKick, 0, 7, delta);
     if (this.damageFlash > 0) this.damageFlash = Math.max(0, this.damageFlash - delta * 2.2);
     if (this.screenShake > 0) this.screenShake = Math.max(0, this.screenShake - delta * 0.08);
     if (this.hitmarkerTimer > 0) {
@@ -1948,7 +1992,7 @@ export class BackroomsEngine {
       this.eyeHeight + headBobY + shakeY,
       this.playerPos.z,
     );
-    _euler.set(this.pitch, this.yaw, 0, 'YXZ');
+    _euler.set(THREE.MathUtils.clamp(this.pitch + this.recoilKick, -1.45, 1.45), this.yaw, 0, 'YXZ');
     this.camera.quaternion.setFromEuler(_euler);
 
     // Weapon update
@@ -1998,6 +2042,17 @@ export class BackroomsEngine {
     // Flashlight battery & eerie proximity flicker. No passive recharge: batteries are a resource.
     if (this.flashlightOn) {
       this.battery = Math.max(0, this.battery - 0.75 * delta);
+      for (const level of LOW_BATTERY_WARNINGS) {
+        if (this.battery <= level && this.batteryWarnedAt > level) {
+          this.batteryWarnedAt = level;
+          this.pushNotification(
+            level <= 10
+              ? `Light at ${level}%. Switch it off and find a battery.`
+              : `Light at ${level}%. Spare cells have a yellow band.`,
+            level <= 10 ? 'danger' : 'warning',
+          );
+        }
+      }
       if (this.battery <= 0) {
         this.flashlightOn = false;
         this.audio.playFlashlightClick();
@@ -2027,8 +2082,9 @@ export class BackroomsEngine {
       if (d < 1.35) {
         if (p.kind === 'tape') {
           p.collected = true;
-          // Hide only the cassette + its beacon so the office table remains visible as a hiding spot.
+          // Hide only the cassette so the office table remains visible as a hiding spot.
           p.rotTarget.visible = false;
+          if (p.light) p.light.intensity = 0;
           this.tapesCollected++;
           this.audio.playPickup('tape');
           this.tapeBeacons.get(p.id)?.dispose();
@@ -2062,18 +2118,21 @@ export class BackroomsEngine {
           this.ammoReserve += 8;
           this.audio.playPickup('ammo');
           this.pushNotification('+8 Rounds collected.', 'info');
-        } else if (p.kind === 'almond_water' && this.health < this.maxHealth) {
+        } else if (p.kind === 'almond_water' && this.supplyIsUseful('almond_water')) {
           p.collected = true;
           p.group.visible = false;
-          this.health = Math.min(this.maxHealth, this.health + 35);
+          const before = this.health;
+          this.health = Math.min(this.maxHealth, this.health + WATER_HEAL);
           this.audio.playPickup('almond_water');
-          this.pushNotification('Almond Water consumed (+35 Vitality).', 'success');
-        } else if (p.kind === 'battery' && Math.round(this.battery) < 100) {
+          this.pushNotification(`Almond Water consumed (+${Math.round(this.health - before)} Vitality).`, 'success');
+        } else if (p.kind === 'battery' && this.supplyIsUseful('battery')) {
           p.collected = true;
           p.group.visible = false;
-          this.battery = Math.min(100, this.battery + 45);
+          const before = this.battery;
+          this.battery = Math.min(100, this.battery + BATTERY_CHARGE);
+          this.batteryWarnedAt = this.battery > 25 ? 100 : this.batteryWarnedAt;
           this.audio.playPickup('battery');
-          this.pushNotification('Battery swapped in (+45% Light).', 'success');
+          this.pushNotification(`Battery swapped in (+${Math.round(this.battery - before)}% Light).`, 'success');
         }
       }
     }
@@ -2169,6 +2228,13 @@ export class BackroomsEngine {
         pl.intensity = 0;
       }
     }
+  }
+
+  /** Would picking this supply up now deliver most of its value? */
+  private supplyIsUseful(kind: 'battery' | 'almond_water'): boolean {
+    return kind === 'battery'
+      ? 100 - this.battery >= BATTERY_CHARGE * AUTO_USE_FRACTION
+      : this.maxHealth - this.health >= WATER_HEAL * AUTO_USE_FRACTION;
   }
 
   private buildGuideContext(nearestThreatDist: number): GuideContext {
@@ -2268,6 +2334,9 @@ export class BackroomsEngine {
     this.pooledLights.forEach((light, i) => {
       light.visible = i < this.activeLightCount;
     });
+    // The light count and shadow setting are part of every lit shader's key: warm the new variants now,
+    // in the background, instead of compiling them the first time each entity or prop comes into view.
+    this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
   }
 
   private buildHudSnapshot(
@@ -2301,6 +2370,19 @@ export class BackroomsEngine {
           this.hideSpots.some((s) => Math.hypot(s.x - this.playerPos.x, s.z - this.playerPos.z) < 0.95)
         ) {
           interactPrompt = '[C] CROUCH UNDER THE DESK TO HIDE';
+        }
+        const savedSupply = this.pickups.find(
+          (pk) =>
+            !pk.collected &&
+            (pk.kind === 'battery' || pk.kind === 'almond_water') &&
+            !this.supplyIsUseful(pk.kind) &&
+            Math.hypot(pk.x - this.playerPos.x, pk.z - this.playerPos.z) < 1.35,
+        );
+        if (!interactPrompt && savedSupply) {
+          interactPrompt =
+            savedSupply.kind === 'battery'
+              ? `SPARE BATTERY · SAVED UNTIL LIGHT ≤ ${100 - Math.ceil(BATTERY_CHARGE * AUTO_USE_FRACTION)}%`
+              : `ALMOND WATER · SAVED UNTIL VITALITY ≤ ${this.maxHealth - Math.ceil(WATER_HEAL * AUTO_USE_FRACTION)}`;
         }
       }
     }

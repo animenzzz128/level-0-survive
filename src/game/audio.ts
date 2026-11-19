@@ -737,21 +737,24 @@ export class HorrorAudioEngine {
   }
 
   /** 'immune' is a dull, wrong-sounding thunk for bullets passing through a Smiler. */
-  public playHitmarker(kind: 'hit' | 'kill' | 'immune'): void {
+  /** 'head' is a low, meaty thud; 'immune' a dull, wrong-sounding one for bullets passing through a Smiler. */
+  public playHitmarker(kind: 'hit' | 'head' | 'kill' | 'immune'): void {
     if (!this.ctx || !this.dryGain) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
-    osc.type = kind === 'immune' ? 'triangle' : 'sine';
-    const [from, to] = kind === 'kill' ? [1480, 720] : kind === 'hit' ? [1080, 640] : [260, 120];
+    osc.type = kind === 'immune' || kind === 'head' ? 'triangle' : 'sine';
+    const [from, to] =
+      kind === 'kill' ? [1480, 720] : kind === 'hit' ? [1080, 640] : kind === 'head' ? [520, 160] : [260, 120];
+    const length = kind === 'head' ? 0.11 : 0.07;
     osc.frequency.setValueAtTime(from, now);
-    osc.frequency.exponentialRampToValueAtTime(to, now + 0.06);
-    g.gain.setValueAtTime(0.18, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    osc.frequency.exponentialRampToValueAtTime(to, now + length * 0.85);
+    g.gain.setValueAtTime(kind === 'head' ? 0.26 : 0.18, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + length);
     osc.connect(g);
     g.connect(this.dryGain);
     osc.start(now);
-    osc.stop(now + 0.08);
+    osc.stop(now + length + 0.01);
   }
 
   public playPlayerHurt(): void {
