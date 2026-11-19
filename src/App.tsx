@@ -1,6 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { GameHud } from './components/GameHud';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { GameHud, RunSummary } from './components/GameHud';
+import { HowToPlay } from './components/HowToPlay';
+import { SettingsPanel } from './components/SettingsPanel';
 import { BackroomsEngine } from './game/BackroomsEngine';
+import {
+  GameSettings,
+  RunMode,
+  dailySeed,
+  getRecord,
+  hasSeenHowTo,
+  loadSettings,
+  markHowToSeen,
+  recordRun,
+  resetGuide,
+  saveSettings,
+  todayLabel,
+} from './game/storage';
 import { DifficultyMode, HudState } from './game/types';
 
 const INITIAL_HUD: HudState = {
@@ -9,6 +24,7 @@ const INITIAL_HUD: HudState = {
   health: 100,
   maxHealth: 100,
   stamina: 100,
+  winded: false,
   battery: 100,
   flashlightOn: true,
   ammoInMag: 12,
@@ -38,6 +54,9 @@ const INITIAL_HUD: HudState = {
   threatLevel: 0,
   muted: false,
   notification: null,
+  tip: null,
+  tapeLog: null,
+  seed: 0,
   interactPrompt: null,
   webglError: null,
 };
@@ -47,6 +66,16 @@ export default function App() {
   const engineRef = useRef<BackroomsEngine | null>(null);
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [difficulty, setDifficulty] = useState<DifficultyMode>('standard');
+  const [mode, setMode] = useState<RunMode>('random');
+  const [settings, setSettings] = useState<GameSettings>(() => loadSettings());
+  // First visit opens the briefing automatically; afterwards it lives behind "How to Play".
+  const [panel, setPanel] = useState<'none' | 'howto' | 'settings'>(() => (hasSeenHowTo() ? 'none' : 'howto'));
+  const [summary, setSummary] = useState<RunSummary | null>(null);
+  const [recordsVersion, setRecordsVersion] = useState(0);
+  const runRef = useRef<{ difficulty: DifficultyMode; mode: RunMode; dailyLabel: string; recorded: boolean } | null>(
+    null,
+  );
+  const dailyLabel = todayLabel();
 
   useEffect(() => {
     const container = canvasContainerRef.current;
@@ -63,6 +92,52 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    engineRef.current?.applySettings(settings);
+    saveSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    if (engineRef.current) engineRef.current.uiOverlayOpen = panel !== 'none';
+  }, [panel]);
+
+  // Record each finished run exactly once
+  useEffect(() => {
+    const run = runRef.current;
+    if (!run || run.recorded) return;
+    if (hud.phase !== 'victory' && hud.phase !== 'gameover') return;
+    run.recorded = true;
+    const { isNewBest, record } = recordRun(
+      run.difficulty,
+      run.mode,
+      hud.phase === 'victory',
+      hud.elapsedSeconds,
+      run.dailyLabel,
+    );
+    setSummary({ mode: run.mode, dailyLabel: run.dailyLabel, bestTime: record.bestTime, isNewBest });
+    setRecordsVersion((v) => v + 1);
+  }, [hud.phase, hud.elapsedSeconds]);
+
+  const bestTimes = useMemo(
+    () => ({
+      all: getRecord(difficulty, 'random', dailyLabel).bestTime,
+      daily: getRecord(difficulty, 'daily', dailyLabel).bestTime,
+    }),
+    // recordsVersion: re-read after a run is recorded
+    [difficulty, dailyLabel, recordsVersion],
+  );
+
+  /** Daily runs always use today's seed; otherwise a given seed replays a layout, none rolls a new one. */
+  const startRun = (runMode: RunMode, seed?: number) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const label = todayLabel();
+    runRef.current = { difficulty, mode: runMode, dailyLabel: label, recorded: false };
+    setSummary(null);
+    engine.startNewGame(difficulty, runMode === 'daily' ? dailySeed(label) : seed);
+  };
+  const currentMode = runRef.current?.mode ?? mode;
+
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-[#0d0c08]">
       {/* Dedicated empty mount container for Three.js WebGL canvas */}
@@ -72,13 +147,42 @@ export default function App() {
         hud={hud}
         selectedDifficulty={difficulty}
         onSelectDifficulty={setDifficulty}
-        onStart={() => engineRef.current?.startNewGame(difficulty)}
+        selectedMode={mode}
+        onSelectMode={setMode}
+        dailyLabel={dailyLabel}
+        bestTimes={bestTimes}
+        summary={summary}
+        onStart={() => startRun(mode)}
         onResume={() => engineRef.current?.resumeGame()}
-        onRestart={() => engineRef.current?.startNewGame(difficulty)}
+        onRestart={() => startRun(currentMode)}
+        onRetryLayout={() => startRun(currentMode, hud.seed)}
         onReturnTitle={() => engineRef.current?.returnToTitle()}
         onToggleMute={() => engineRef.current?.toggleMute()}
         onRequestLock={() => engineRef.current?.requestLock()}
+        onOpenHowTo={() => setPanel('howto')}
+        onOpenSettings={() => setPanel('settings')}
       />
+
+      {panel === 'howto' && (
+        <HowToPlay
+          onClose={() => {
+            markHowToSeen();
+            setPanel('none');
+          }}
+        />
+      )}
+      {panel === 'settings' && (
+        <SettingsPanel
+          settings={settings}
+          autoQuality={engineRef.current?.resolveQuality('auto') ?? 'high'}
+          onChange={setSettings}
+          onResetTips={() => {
+            resetGuide();
+            engineRef.current?.resetTips();
+          }}
+          onClose={() => setPanel('none')}
+        />
+      )}
     </main>
   );
 }

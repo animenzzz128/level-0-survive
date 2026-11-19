@@ -62,15 +62,21 @@ export interface BoxCollider {
 }
 
 export interface BackroomsLevelData {
+  seed: number;
   grid: Uint8Array; // 1 = wall, 0 = walkable
   size: number;
   cellSize: number;
   wallHeight: number;
+  spawnCell: { gx: number; gz: number };
   spawnPos: THREE.Vector3;
   spawnYaw: number;
   exitCell: { gx: number; gz: number };
   exitPos: THREE.Vector3;
+  /** Unit vector from the exit door back into the exit cell. */
   exitNormal: THREE.Vector3;
+  /** Y rotation for the exit door group (built facing -Z). */
+  exitRotY: number;
+  rooms: RoomSpec[];
   pillars: PillarSpec[];
   fixtures: LightFixtureSpec[];
   pickups: PickupSpawn[];
@@ -112,8 +118,19 @@ export function isWallCell(grid: Uint8Array, gx: number, gz: number): boolean {
   return grid[gz * MAZE_SIZE + gx] === 1;
 }
 
+/** Rectangular open office hall: cells cx±hw, cz±hh. */
+export interface RoomSpec {
+  cx: number;
+  cz: number;
+  hw: number;
+  hh: number;
+}
+
+const QUADRANT_SPLIT = (MAZE_SIZE - 1) / 2;
+
 export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   const rng = createRng(seed);
+  const pick = <T,>(items: T[]): T => items[Math.floor(rng() * items.length)];
   const grid = new Uint8Array(MAZE_SIZE * MAZE_SIZE);
   grid.fill(1);
 
@@ -122,12 +139,22 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
       grid[gz * MAZE_SIZE + gx] = 0;
     }
   };
+  const key = (gx: number, gz: number) => `${gx},${gz}`;
+  const far = MAZE_SIZE - 2;
 
-  // Recursive backtracker maze
+  // Spawn in a random corner; layout, exit and tapes all hang off this choice.
+  const spawnCell = pick([
+    { gx: 1, gz: 1 },
+    { gx: far, gz: 1 },
+    { gx: 1, gz: far },
+    { gx: far, gz: far },
+  ]);
+
+  // Recursive backtracker maze grown from the spawn corner
   const visited = new Uint8Array(MAZE_SIZE * MAZE_SIZE);
-  const stack: Array<[number, number]> = [[1, 1]];
-  setOpen(1, 1);
-  visited[1 * MAZE_SIZE + 1] = 1;
+  const stack: Array<[number, number]> = [[spawnCell.gx, spawnCell.gz]];
+  setOpen(spawnCell.gx, spawnCell.gz);
+  visited[spawnCell.gz * MAZE_SIZE + spawnCell.gx] = 1;
 
   const dirs: Array<[number, number]> = [
     [2, 0],
@@ -159,14 +186,12 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     }
   }
 
-  // Braid maze slightly so players can flank entities instead of getting trapped
+  // Braid the maze so there are loops to flank and escape through instead of long dead ends
   for (let gz = 2; gz < MAZE_SIZE - 2; gz++) {
     for (let gx = 2; gx < MAZE_SIZE - 2; gx++) {
-      if (grid[gz * MAZE_SIZE + gx] === 1 && rng() < 0.14) {
-        const horiz =
-          !isWallCell(grid, gx - 1, gz) && !isWallCell(grid, gx + 1, gz);
-        const vert =
-          !isWallCell(grid, gx, gz - 1) && !isWallCell(grid, gx, gz + 1);
+      if (grid[gz * MAZE_SIZE + gx] === 1 && rng() < 0.2) {
+        const horiz = !isWallCell(grid, gx - 1, gz) && !isWallCell(grid, gx + 1, gz);
+        const vert = !isWallCell(grid, gx, gz - 1) && !isWallCell(grid, gx, gz + 1);
         if (horiz || vert) {
           grid[gz * MAZE_SIZE + gx] = 0;
         }
@@ -174,63 +199,84 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     }
   }
 
-  // Carve 4 iconic Level 0 open office halls with support pillars
-  const hallCenters: Array<[number, number]> = [
-    [5, 5],
-    [17, 5],
-    [11, 11],
-    [5, 17],
-    [17, 15],
-  ];
-  const pillars: PillarSpec[] = [];
+  // Open office halls of random size and position (3x3 to 5x5 cells), kept apart and away from spawn
+  const rooms: RoomSpec[] = [];
+  for (let attempts = 0; rooms.length < 6 && attempts < 300; attempts++) {
+    const hw = rng() < 0.45 ? 2 : 1;
+    const hh = rng() < 0.45 ? 2 : 1;
+    const cx = 2 + hw + Math.floor(rng() * (MAZE_SIZE - 5 - 2 * hw + 1));
+    const cz = 2 + hh + Math.floor(rng() * (MAZE_SIZE - 5 - 2 * hh + 1));
+    const gapToSpawn = Math.max(
+      Math.max(0, Math.abs(cx - spawnCell.gx) - hw),
+      Math.max(0, Math.abs(cz - spawnCell.gz) - hh),
+    );
+    if (gapToSpawn < 3) continue;
+    const overlaps = rooms.some(
+      (r) => Math.abs(cx - r.cx) <= hw + r.hw + 2 && Math.abs(cz - r.cz) <= hh + r.hh + 2,
+    );
+    if (overlaps) continue;
+    rooms.push({ cx, cz, hw, hh });
+  }
+  const inRoom = (gx: number, gz: number) =>
+    rooms.some((r) => Math.abs(gx - r.cx) <= r.hw && Math.abs(gz - r.cz) <= r.hh);
 
-  for (const [hx, hz] of hallCenters) {
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        setOpen(hx + dx, hz + dz);
+  // Carve the halls; support pillars stand on interior grid corners, never on cell centres where paths run
+  const pillars: PillarSpec[] = [];
+  for (const r of rooms) {
+    for (let gz = r.cz - r.hh; gz <= r.cz + r.hh; gz++) {
+      for (let gx = r.cx - r.hw; gx <= r.cx + r.hw; gx++) setOpen(gx, gz);
+    }
+    for (let gz = r.cz - r.hh; gz < r.cz + r.hh; gz++) {
+      for (let gx = r.cx - r.hw; gx < r.cx + r.hw; gx++) {
+        if (rng() < 0.3) {
+          const corner = gridToWorld(gx, gz);
+          pillars.push({ x: corner.x + CELL_SIZE / 2, z: corner.z + CELL_SIZE / 2, halfWidth: 0.28 });
+        }
       }
     }
-    const worldCenter = gridToWorld(hx, hz);
-    // Add 2 asymmetric architectural columns inside open halls
-    pillars.push({
-      x: worldCenter.x - CELL_SIZE * 0.72,
-      z: worldCenter.z - CELL_SIZE * 0.72,
-      halfWidth: 0.28,
-    });
-    pillars.push({
-      x: worldCenter.x + CELL_SIZE * 0.72,
-      z: worldCenter.z + CELL_SIZE * 0.72,
-      halfWidth: 0.28,
-    });
   }
 
-  // Ensure straight starting sightline corridor at spawn (1,1) -> (1,2) -> (1,3) -> (2,3) -> (3,3)
-  setOpen(1, 1);
-  setOpen(1, 2);
-  setOpen(1, 3);
-  setOpen(2, 1);
-  const spawnPos = gridToWorld(1, 1);
+  // Straight opening corridor out of the spawn corner; the camera starts looking down it
+  const inward = pick([
+    { dx: spawnCell.gx === 1 ? 1 : -1, dz: 0 },
+    { dx: 0, dz: spawnCell.gz === 1 ? 1 : -1 },
+  ]);
+  for (let k = 0; k <= 2; k++) setOpen(spawnCell.gx + inward.dx * k, spawnCell.gz + inward.dz * k);
+  const spawnPos = gridToWorld(spawnCell.gx, spawnCell.gz);
   spawnPos.y = 1.68;
-  // Look toward +Z corridor where a flickering fluorescent light + hallway stretches out
-  const spawnYaw = Math.PI;
+  // Camera forward is (-sin(yaw), -cos(yaw))
+  const spawnYaw = Math.atan2(-inward.dx, -inward.dz);
 
-  // Exit placed on far boundary wall at (MAZE_SIZE - 2, MAZE_SIZE - 2)
-  const exitCell = { gx: MAZE_SIZE - 2, gz: MAZE_SIZE - 2 };
-  setOpen(exitCell.gx, exitCell.gz);
-  setOpen(exitCell.gx - 1, exitCell.gz);
-  setOpen(exitCell.gx, exitCell.gz - 1);
-
+  // Exit door on a boundary wall far from spawn by walking distance
+  const spawnDist = computeBfsDistances(grid, spawnCell.gx, spawnCell.gz);
+  let maxDist = 0;
+  for (let i = 0; i < spawnDist.length; i++) maxDist = Math.max(maxDist, spawnDist[i]);
+  const exitCandidates: Array<{ gx: number; gz: number }> = [];
+  for (let gz = 1; gz <= far; gz++) {
+    for (let gx = 1; gx <= far; gx++) {
+      const onEdge = gx === 1 || gx === far || gz === 1 || gz === far;
+      if (onEdge && spawnDist[gz * MAZE_SIZE + gx] >= maxDist * 0.7) exitCandidates.push({ gx, gz });
+    }
+  }
+  const exitCell = exitCandidates.length > 0 ? pick(exitCandidates) : { gx: far, gz: far };
+  const sides: Array<{ nx: number; nz: number; rotY: number }> = [];
+  if (exitCell.gz === far) sides.push({ nx: 0, nz: 1, rotY: 0 });
+  if (exitCell.gz === 1) sides.push({ nx: 0, nz: -1, rotY: Math.PI });
+  if (exitCell.gx === far) sides.push({ nx: 1, nz: 0, rotY: Math.PI / 2 });
+  if (exitCell.gx === 1) sides.push({ nx: -1, nz: 0, rotY: -Math.PI / 2 });
+  const exitSide = sides.length > 0 ? pick(sides) : { nx: 0, nz: 1, rotY: 0 };
   const exitWorld = gridToWorld(exitCell.gx, exitCell.gz);
-  // Door sits flush on the +Z outer wall of exitCell
+  // The door sits flush on the boundary wall with its front facing back into the exit cell
   const exitPos = new THREE.Vector3(
-    exitWorld.x,
+    exitWorld.x + exitSide.nx * (CELL_SIZE * 0.5 - 0.08),
     0,
-    exitWorld.z + CELL_SIZE * 0.5 - 0.08,
+    exitWorld.z + exitSide.nz * (CELL_SIZE * 0.5 - 0.08),
   );
-  const exitNormal = new THREE.Vector3(0, 0, -1);
+  const exitNormal = new THREE.Vector3(-exitSide.nx, 0, -exitSide.nz);
+  const exitRotY = exitSide.rotY;
 
-  // Build BFS distance field from spawn to place tapes, pickups, and enemies meaningfully
-  const distField = computeBfsDistances(grid, 1, 1);
+  // BFS distance field from spawn to place tapes, pickups, and enemies meaningfully
+  const distField = computeBfsDistances(grid, spawnCell.gx, spawnCell.gz);
   const walkableCells: Array<{ gx: number; gz: number; dist: number }> = [];
   for (let gz = 1; gz < MAZE_SIZE - 1; gz++) {
     for (let gx = 1; gx < MAZE_SIZE - 1; gx++) {
@@ -243,41 +289,53 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     }
   }
 
-  // Pick 4 well-separated quadrant cells for VHS Tapes
-  const tapeTargets: Array<[number, number]> = [
-    [5, 17],
-    [17, 5],
-    [11, 11],
-    [17, 17],
-  ];
-  const usedKeys = new Set<string>(['1,1', `${exitCell.gx},${exitCell.gz}`]);
+  // One VHS tape per quadrant, at least 5 steps from spawn, preferring open halls, spaced apart
+  const usedKeys = new Set<string>([key(spawnCell.gx, spawnCell.gz), key(exitCell.gx, exitCell.gz)]);
   const pickups: PickupSpawn[] = [];
-
-  for (const [tx, tz] of tapeTargets) {
-    let best = walkableCells[0];
-    let bestScore = Infinity;
-    for (const c of walkableCells) {
-      const k = `${c.gx},${c.gz}`;
-      if (usedKeys.has(k)) continue;
-      const d = Math.hypot(c.gx - tx, c.gz - tz);
-      if (d < bestScore) {
-        bestScore = d;
-        best = c;
-      }
+  const tapeCells: Array<{ gx: number; gz: number }> = [];
+  const quadrantOf = (gx: number, gz: number) => (gx > QUADRANT_SPLIT ? 1 : 0) + (gz > QUADRANT_SPLIT ? 2 : 0);
+  for (let q = 0; q < 4; q++) {
+    const pool = walkableCells.filter(
+      (c) =>
+        quadrantOf(c.gx, c.gz) === q &&
+        c.dist >= 5 &&
+        !usedKeys.has(key(c.gx, c.gz)) &&
+        Math.max(Math.abs(c.gx - exitCell.gx), Math.abs(c.gz - exitCell.gz)) >= 3 &&
+        tapeCells.every((t) => Math.abs(t.gx - c.gx) + Math.abs(t.gz - c.gz) >= 5),
+    );
+    const roomPool = pool.filter((c) => inRoom(c.gx, c.gz));
+    let choice = roomPool.length > 0 && rng() < 0.6 ? pick(roomPool) : pool.length > 0 ? pick(pool) : null;
+    if (!choice) {
+      // Degenerate quadrant: fall back to the farthest unused cell anywhere
+      choice = walkableCells
+        .filter((c) => !usedKeys.has(key(c.gx, c.gz)))
+        .reduce((a, b) => (b.dist > a.dist ? b : a));
     }
-    usedKeys.add(`${best.gx},${best.gz}`);
-    const wp = gridToWorld(best.gx, best.gz);
+    usedKeys.add(key(choice.gx, choice.gz));
+    tapeCells.push(choice);
+    const wp = gridToWorld(choice.gx, choice.gz);
     pickups.push({ kind: 'tape', x: wp.x, z: wp.z, onTable: true });
   }
 
-  // One hide-under office desk in a free corner of every open hall (the pillars take the other diagonal)
+  // Hide-under office desks in hall corners (two in the big halls)
   const desks: DeskSpec[] = [];
-  for (const [hx, hz] of hallCenters) {
-    const k = `${hx + 1},${hz - 1}`;
-    if (usedKeys.has(k) || isWallCell(grid, hx + 1, hz - 1)) continue;
-    usedKeys.add(k);
-    const wp = gridToWorld(hx + 1, hz - 1);
-    desks.push({ x: wp.x, z: wp.z, rotY: rng() < 0.5 ? 0 : Math.PI / 2 });
+  for (const r of rooms) {
+    const corners = [
+      [r.cx + r.hw, r.cz - r.hh],
+      [r.cx - r.hw, r.cz + r.hh],
+      [r.cx - r.hw, r.cz - r.hh],
+      [r.cx + r.hw, r.cz + r.hh],
+    ];
+    const wanted = r.hw * r.hh >= 4 ? 2 : 1;
+    let placed = 0;
+    for (const [gx, gz] of corners) {
+      if (placed >= wanted) break;
+      if (usedKeys.has(key(gx, gz)) || isWallCell(grid, gx, gz)) continue;
+      usedKeys.add(key(gx, gz));
+      const wp = gridToWorld(gx, gz);
+      desks.push({ x: wp.x, z: wp.z, rotY: rng() < 0.5 ? 0 : Math.PI / 2 });
+      placed++;
+    }
   }
 
   // Scarce supplies spread across walkable cells: ammo, Almond Water (health) and flashlight batteries
@@ -287,7 +345,7 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     let placed = 0;
     while (placed < count && supplyCursor < shuffled.length) {
       const c = shuffled[supplyCursor++];
-      const k = `${c.gx},${c.gz}`;
+      const k = key(c.gx, c.gz);
       if (usedKeys.has(k)) continue;
       usedKeys.add(k);
       const wp = gridToWorld(c.gx, c.gz);
@@ -297,13 +355,11 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   }
 
   // Closable doors across straight one-cell corridors, spaced out and away from spawn and exit
-  const isHallCell = (gx: number, gz: number) =>
-    hallCenters.some(([hx, hz]) => Math.abs(gx - hx) <= 1 && Math.abs(gz - hz) <= 1);
   const doors: DoorSpec[] = [];
   for (const c of shuffled) {
     if (doors.length >= 8) break;
-    const k = `${c.gx},${c.gz}`;
-    if (usedKeys.has(k) || c.dist < 4 || isHallCell(c.gx, c.gz)) continue;
+    const k = key(c.gx, c.gz);
+    if (usedKeys.has(k) || c.dist < 4 || inRoom(c.gx, c.gz)) continue;
     if (Math.abs(c.gx - exitCell.gx) + Math.abs(c.gz - exitCell.gz) <= 2) continue;
     const openW = !isWallCell(grid, c.gx - 1, c.gz);
     const openE = !isWallCell(grid, c.gx + 1, c.gz);
@@ -318,21 +374,17 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     const wp = gridToWorld(c.gx, c.gz);
     doors.push({ gx: c.gx, gz: c.gz, x: wp.x, z: wp.z, axis });
   }
-  const doorKeys = new Set(doors.map((d) => `${d.gx},${d.gz}`));
+  const doorKeys = new Set(doors.map((d) => key(d.gx, d.gz)));
 
   // Entity spawns at medium/far distance from player spawn
   const entitySpawns: Array<{ x: number; z: number }> = [];
-  const farCells = walkableCells
-    .filter((c) => c.dist >= 8)
-    .sort(() => rng() - 0.5);
+  const farCells = walkableCells.filter((c) => c.dist >= 8).sort(() => rng() - 0.5);
   for (const c of farCells) {
-    const k = `${c.gx},${c.gz}`;
+    const k = key(c.gx, c.gz);
     if (usedKeys.has(k)) continue;
     // Keep entities slightly spaced out
     const wp = gridToWorld(c.gx, c.gz);
-    const tooClose = entitySpawns.some(
-      (e) => Math.hypot(e.x - wp.x, e.z - wp.z) < CELL_SIZE * 3.5,
-    );
+    const tooClose = entitySpawns.some((e) => Math.hypot(e.x - wp.x, e.z - wp.z) < CELL_SIZE * 3.5);
     if (!tooClose) {
       usedKeys.add(k);
       entitySpawns.push({ x: wp.x, z: wp.z });
@@ -342,16 +394,17 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
 
   // Fluorescent ceiling fixtures on an organic commercial grid
   const fixtures: LightFixtureSpec[] = [];
+  const startFlicker = { gx: spawnCell.gx + inward.dx * 2, gz: spawnCell.gz + inward.dz * 2 };
   for (let gz = 1; gz < MAZE_SIZE - 1; gz += 2) {
     for (let gx = 1; gx < MAZE_SIZE - 1; gx += 2) {
       if (grid[gz * MAZE_SIZE + gx] === 0) {
         const wp = gridToWorld(gx, gz);
         const roll = rng();
-        const isStartCorridor = gx <= 2 && gz <= 4;
+        const isStartArea = Math.max(Math.abs(gx - spawnCell.gx), Math.abs(gz - spawnCell.gz)) <= 2;
         let flickerMode: LightFixtureSpec['flickerMode'] = 'steady';
-        if (isStartCorridor && gz === 3) {
+        if (gx === startFlicker.gx && gz === startFlicker.gz) {
           flickerMode = 'flicker';
-        } else if (!isStartCorridor) {
+        } else if (!isStartArea) {
           if (roll < 0.18) flickerMode = 'dead';
           else if (roll < 0.34) flickerMode = 'flicker';
         }
@@ -372,7 +425,7 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   let variantIdx = 0;
   for (const c of shuffled) {
     if (graffiti.length >= 7) break;
-    if (c.dist < 3 || doorKeys.has(`${c.gx},${c.gz}`)) continue;
+    if (c.dist < 3 || doorKeys.has(key(c.gx, c.gz))) continue;
     const wp = gridToWorld(c.gx, c.gz);
     if (isWallCell(grid, c.gx, c.gz + 1)) {
       graffiti.push({
@@ -394,15 +447,19 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   }
 
   return {
+    seed,
     grid,
     size: MAZE_SIZE,
     cellSize: CELL_SIZE,
     wallHeight: WALL_HEIGHT,
+    spawnCell,
     spawnPos,
     spawnYaw,
     exitCell,
     exitPos,
     exitNormal,
+    exitRotY,
+    rooms,
     pillars,
     fixtures,
     pickups,

@@ -3,6 +3,10 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # Pull requests run the same install / typecheck / tests / build, but never deploy,
+  # so a broken lockfile or failing check shows up before merge instead of after.
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +15,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  # PR checks get their own group so they never cancel a deploy of main.
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'pages' }}
   cancel-in-progress: true
 
 jobs:
@@ -27,15 +32,19 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck
         run: npm run lint
+      - name: Level generation tests
+        run: npm test
       - name: Build
         run: npm run build
         env:
           BASE_PATH: /level-0-survive/
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
         with:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

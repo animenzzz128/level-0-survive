@@ -221,6 +221,7 @@ export class HorrorAudioEngine {
   private threatLevel = 0;
   private heartbeatTimer = 0;
   private muted = false;
+  private volume = 0.8;
   private started = false;
 
   public init(): void {
@@ -243,7 +244,7 @@ export class HorrorAudioEngine {
     compressor.release.value = 0.2;
 
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = this.muted ? 0 : 0.72;
+    this.masterGain.gain.value = this.muted ? 0 : this.outputLevel();
 
     this.dryGain = this.ctx.createGain();
     this.dryGain.gain.value = 0.85;
@@ -267,9 +268,136 @@ export class HorrorAudioEngine {
 
   public setMuted(muted: boolean): void {
     this.muted = muted;
+    this.applyOutputLevel();
+  }
+
+  /** Master volume from Settings, 0..1. */
+  public setVolume(volume: number): void {
+    this.volume = Math.min(1, Math.max(0, volume));
+    this.applyOutputLevel();
+  }
+
+  private outputLevel(): number {
+    return 0.9 * this.volume;
+  }
+
+  private applyOutputLevel(): void {
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.72, this.ctx.currentTime, 0.04);
+      this.masterGain.gain.setTargetAtTime(this.muted ? 0 : this.outputLevel(), this.ctx.currentTime, 0.04);
     }
+  }
+
+  /**
+   * Looping positional hiss-and-warble marking an uncollected VHS tape, so the player can find tapes
+   * by ear. Linear falloff: silent beyond ~22 m. Returns null until audio is unlocked.
+   */
+  public createTapeBeacon(x: number, y: number, z: number): { dispose: () => void } | null {
+    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.noiseBuffer) return null;
+    const ctx = this.ctx;
+    const panner = ctx.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.distanceModel = 'linear';
+    panner.refDistance = 1.5;
+    panner.maxDistance = 22;
+    panner.rolloffFactor = 1;
+    placePanner(panner, x, y, z);
+    panner.connect(this.dryGain);
+
+    const out = ctx.createGain();
+    out.gain.value = 0.55;
+    out.connect(panner);
+
+    // Tape hiss, pulsing slowly
+    const hiss = ctx.createBufferSource();
+    hiss.buffer = this.noiseBuffer;
+    hiss.loop = true;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 3200;
+    band.Q.value = 0.8;
+    const hissGain = ctx.createGain();
+    hissGain.gain.value = 0.16;
+    const pulse = ctx.createOscillator();
+    pulse.frequency.value = 0.9;
+    const pulseDepth = ctx.createGain();
+    pulseDepth.gain.value = 0.08;
+    pulse.connect(pulseDepth);
+    pulseDepth.connect(hissGain.gain);
+    hiss.connect(band);
+    band.connect(hissGain);
+    hissGain.connect(out);
+
+    // Warped, wobbling two-note chord: a tape that was left playing
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 0.55;
+    const wobbleDepth = ctx.createGain();
+    wobbleDepth.gain.value = 9;
+    wobble.connect(wobbleDepth);
+    const toneFilter = ctx.createBiquadFilter();
+    toneFilter.type = 'lowpass';
+    toneFilter.frequency.value = 900;
+    const toneGain = ctx.createGain();
+    toneGain.gain.value = 0.07;
+    toneFilter.connect(toneGain);
+    toneGain.connect(out);
+    const tones = [233.08, 293.66].map((f) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      wobbleDepth.connect(osc.detune);
+      osc.connect(toneFilter);
+      return osc;
+    });
+
+    const sources: AudioScheduledSourceNode[] = [hiss, pulse, wobble, ...tones];
+    for (const src of sources) src.start();
+    return {
+      dispose: () => {
+        for (const src of sources) {
+          try {
+            src.stop();
+          } catch {
+            /* already stopped */
+          }
+        }
+        try {
+          panner.disconnect();
+        } catch {
+          /* context already closed */
+        }
+      },
+    };
+  }
+
+  /** Mechanical clunk and a burst of static: a recovered tape starts playing back. */
+  public playTapeLog(): void {
+    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const thunk = ctx.createOscillator();
+    thunk.type = 'square';
+    thunk.frequency.setValueAtTime(140, now);
+    thunk.frequency.exponentialRampToValueAtTime(60, now + 0.08);
+    const thunkGain = ctx.createGain();
+    thunkGain.gain.setValueAtTime(0.25, now);
+    thunkGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    thunk.connect(thunkGain);
+    thunkGain.connect(this.dryGain);
+    thunk.start(now);
+    thunk.stop(now + 0.12);
+    const hiss = ctx.createBufferSource();
+    hiss.buffer = this.noiseBuffer;
+    const band = ctx.createBiquadFilter();
+    band.type = 'highpass';
+    band.frequency.value = 2500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now + 0.1);
+    g.gain.linearRampToValueAtTime(0.12, now + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 1.4);
+    hiss.connect(band);
+    band.connect(g);
+    g.connect(this.dryGain);
+    hiss.start(now + 0.1, 0, 1.4);
   }
 
   public isMuted(): boolean {
