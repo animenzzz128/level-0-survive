@@ -35,6 +35,32 @@ export interface GraffitiSpec {
   variant: number;
 }
 
+/** A door placed across a one-cell corridor. */
+export interface DoorSpec {
+  gx: number;
+  gz: number;
+  x: number;
+  z: number;
+  /** World axis the corridor runs along; the door plane is perpendicular to it. */
+  axis: 'x' | 'z';
+}
+
+/** Office desk the player can crouch under to hide. */
+export interface DeskSpec {
+  x: number;
+  z: number;
+  rotY: number;
+}
+
+/** Axis-aligned box obstacle (door panels, door-side wall stubs). Inactive boxes are ignored. */
+export interface BoxCollider {
+  x: number;
+  z: number;
+  halfX: number;
+  halfZ: number;
+  active: boolean;
+}
+
 export interface BackroomsLevelData {
   grid: Uint8Array; // 1 = wall, 0 = walkable
   size: number;
@@ -50,7 +76,15 @@ export interface BackroomsLevelData {
   pickups: PickupSpawn[];
   entitySpawns: Array<{ x: number; z: number }>;
   graffiti: GraffitiSpec[];
+  doors: DoorSpec[];
+  desks: DeskSpec[];
 }
+
+const PICKUP_COUNTS: Array<[PickupKind, number]> = [
+  ['ammo', 3],
+  ['almond_water', 4],
+  ['battery', 4],
+];
 
 function createRng(seed: number) {
   let s = seed >>> 0;
@@ -236,26 +270,55 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     pickups.push({ kind: 'tape', x: wp.x, z: wp.z, onTable: true });
   }
 
-  // Ammo crates & Almond Water spread across walkable cells
+  // One hide-under office desk in a free corner of every open hall (the pillars take the other diagonal)
+  const desks: DeskSpec[] = [];
+  for (const [hx, hz] of hallCenters) {
+    const k = `${hx + 1},${hz - 1}`;
+    if (usedKeys.has(k) || isWallCell(grid, hx + 1, hz - 1)) continue;
+    usedKeys.add(k);
+    const wp = gridToWorld(hx + 1, hz - 1);
+    desks.push({ x: wp.x, z: wp.z, rotY: rng() < 0.5 ? 0 : Math.PI / 2 });
+  }
+
+  // Scarce supplies spread across walkable cells: ammo, Almond Water (health) and flashlight batteries
   const shuffled = [...walkableCells].sort(() => rng() - 0.5);
-  let ammoCount = 0;
-  let waterCount = 0;
-  for (const c of shuffled) {
-    const k = `${c.gx},${c.gz}`;
-    if (usedKeys.has(k)) continue;
-    const wp = gridToWorld(c.gx, c.gz);
-    if (ammoCount < 6) {
+  let supplyCursor = 0;
+  for (const [kind, count] of PICKUP_COUNTS) {
+    let placed = 0;
+    while (placed < count && supplyCursor < shuffled.length) {
+      const c = shuffled[supplyCursor++];
+      const k = `${c.gx},${c.gz}`;
+      if (usedKeys.has(k)) continue;
       usedKeys.add(k);
-      pickups.push({ kind: 'ammo', x: wp.x, z: wp.z, onTable: false });
-      ammoCount++;
-    } else if (waterCount < 5) {
-      usedKeys.add(k);
-      pickups.push({ kind: 'almond_water', x: wp.x, z: wp.z, onTable: false });
-      waterCount++;
-    } else {
-      break;
+      const wp = gridToWorld(c.gx, c.gz);
+      pickups.push({ kind, x: wp.x, z: wp.z, onTable: false });
+      placed++;
     }
   }
+
+  // Closable doors across straight one-cell corridors, spaced out and away from spawn and exit
+  const isHallCell = (gx: number, gz: number) =>
+    hallCenters.some(([hx, hz]) => Math.abs(gx - hx) <= 1 && Math.abs(gz - hz) <= 1);
+  const doors: DoorSpec[] = [];
+  for (const c of shuffled) {
+    if (doors.length >= 8) break;
+    const k = `${c.gx},${c.gz}`;
+    if (usedKeys.has(k) || c.dist < 4 || isHallCell(c.gx, c.gz)) continue;
+    if (Math.abs(c.gx - exitCell.gx) + Math.abs(c.gz - exitCell.gz) <= 2) continue;
+    const openW = !isWallCell(grid, c.gx - 1, c.gz);
+    const openE = !isWallCell(grid, c.gx + 1, c.gz);
+    const openN = !isWallCell(grid, c.gx, c.gz - 1);
+    const openS = !isWallCell(grid, c.gx, c.gz + 1);
+    let axis: DoorSpec['axis'] | null = null;
+    if (openW && openE && !openN && !openS) axis = 'x';
+    else if (openN && openS && !openW && !openE) axis = 'z';
+    if (!axis) continue;
+    if (doors.some((d) => Math.max(Math.abs(d.gx - c.gx), Math.abs(d.gz - c.gz)) < 3)) continue;
+    usedKeys.add(k);
+    const wp = gridToWorld(c.gx, c.gz);
+    doors.push({ gx: c.gx, gz: c.gz, x: wp.x, z: wp.z, axis });
+  }
+  const doorKeys = new Set(doors.map((d) => `${d.gx},${d.gz}`));
 
   // Entity spawns at medium/far distance from player spawn
   const entitySpawns: Array<{ x: number; z: number }> = [];
@@ -309,7 +372,7 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
   let variantIdx = 0;
   for (const c of shuffled) {
     if (graffiti.length >= 7) break;
-    if (c.dist < 3) continue;
+    if (c.dist < 3 || doorKeys.has(`${c.gx},${c.gz}`)) continue;
     const wp = gridToWorld(c.gx, c.gz);
     if (isWallCell(grid, c.gx, c.gz + 1)) {
       graffiti.push({
@@ -345,10 +408,12 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     pickups,
     entitySpawns,
     graffiti,
+    doors,
+    desks,
   };
 }
 
-function computeBfsDistances(
+export function computeBfsDistances(
   grid: Uint8Array,
   startGx: number,
   startGz: number,
@@ -386,6 +451,7 @@ export function resolveCircleWallCollision(
   radius: number,
   grid: Uint8Array,
   pillars: PillarSpec[],
+  boxes: ReadonlyArray<BoxCollider> = [],
 ): void {
   const halfWorld = ((MAZE_SIZE - 1) * CELL_SIZE) / 2;
   const { gx, gz } = worldToGrid(pos.x, pos.z);
@@ -451,6 +517,50 @@ export function resolveCircleWallCollision(
       pos.z += (dz / dist) * push;
     }
   }
+
+  for (const b of boxes) {
+    if (!b.active) continue;
+    const minX = b.x - b.halfX;
+    const maxX = b.x + b.halfX;
+    const minZ = b.z - b.halfZ;
+    const maxZ = b.z + b.halfZ;
+    const dx = pos.x - THREE.MathUtils.clamp(pos.x, minX, maxX);
+    const dz = pos.z - THREE.MathUtils.clamp(pos.z, minZ, maxZ);
+    const distSq = dx * dx + dz * dz;
+    if (distSq >= radius * radius) continue;
+    if (distSq > 1e-8) {
+      const dist = Math.sqrt(distSq);
+      const push = radius - dist;
+      pos.x += (dx / dist) * push;
+      pos.z += (dz / dist) * push;
+    } else {
+      // Centre inside the box (thin door panels): leave along the shallowest axis.
+      const penX = Math.min(pos.x - minX, maxX - pos.x);
+      const penZ = Math.min(pos.z - minZ, maxZ - pos.z);
+      if (penX < penZ) pos.x = pos.x - minX < maxX - pos.x ? minX - radius : maxX + radius;
+      else pos.z = pos.z - minZ < maxZ - pos.z ? minZ - radius : maxZ + radius;
+    }
+  }
+}
+
+/** True when the 2D segments p1–p2 and q1–q2 properly intersect. */
+export function segmentsIntersect(
+  p1x: number,
+  p1z: number,
+  p2x: number,
+  p2z: number,
+  q1x: number,
+  q1z: number,
+  q2x: number,
+  q2z: number,
+): boolean {
+  const cross = (ax: number, az: number, bx: number, bz: number, cx: number, cz: number) =>
+    (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+  const d1 = cross(q1x, q1z, q2x, q2z, p1x, p1z);
+  const d2 = cross(q1x, q1z, q2x, q2z, p2x, p2z);
+  const d3 = cross(p1x, p1z, p2x, p2z, q1x, q1z);
+  const d4 = cross(p1x, p1z, p2x, p2z, q2x, q2z);
+  return d1 * d2 < 0 && d3 * d4 < 0;
 }
 
 export function hasLineOfSight(
@@ -473,16 +583,23 @@ export function hasLineOfSight(
   return true;
 }
 
+/** Next cell-centre waypoint on a BFS path from `from` to `target`, or null when `target` is unreachable. */
 export function findNextStepToward(
   from: THREE.Vector3,
   target: THREE.Vector3,
   grid: Uint8Array,
-): THREE.Vector3 {
+): THREE.Vector3 | null {
   const start = worldToGrid(from.x, from.z);
   const goal = worldToGrid(target.x, target.z);
 
   if (start.gx === goal.gx && start.gz === goal.gz) {
     return target.clone();
+  }
+  if (
+    start.gx < 0 || start.gz < 0 || start.gx >= MAZE_SIZE || start.gz >= MAZE_SIZE ||
+    goal.gx < 0 || goal.gz < 0 || goal.gx >= MAZE_SIZE || goal.gz >= MAZE_SIZE
+  ) {
+    return null;
   }
 
   const parent = new Int16Array(MAZE_SIZE * MAZE_SIZE).fill(-1);
@@ -523,7 +640,7 @@ export function findNextStepToward(
     }
   }
 
-  if (!found) return target.clone();
+  if (!found) return null;
 
   let step = goalIdx;
   while (parent[step] !== -1 && parent[step] !== startIdx) {

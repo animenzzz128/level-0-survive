@@ -1,19 +1,14 @@
 import * as THREE from 'three';
-import { EntityArchetype } from './types';
-import {
-  CELL_SIZE,
-  MAZE_SIZE,
-  PillarSpec,
-  findNextStepToward,
-  gridToWorld,
-  hasLineOfSight,
-  resolveCircleWallCollision,
-} from './maze';
+import { EntityArchetype, EntityState } from './types';
 
 export interface EntityHitResult {
   hit: boolean;
   killed: boolean;
   headshot: boolean;
+  /** Bullets do nothing to this entity (Smiler). */
+  immune: boolean;
+  /** The shot exposed a disguised Skin-Stealer. */
+  revealed: boolean;
   damage: number;
   entityName: string;
 }
@@ -28,31 +23,172 @@ export interface EntityTextureBundle {
   bruteNormalTex: THREE.DataTexture;
 }
 
+/** Positional sound source attached to an entity (implemented by the audio engine). */
+export interface EntityVoice {
+  setPosition(x: number, y: number, z: number): void;
+  /** Muffle the voice when a wall or closed door is between it and the player. */
+  setOccluded(occluded: boolean): void;
+  playStep(heavy: boolean): void;
+  playScreech(archetype: EntityArchetype): void;
+  playIdle(archetype: EntityArchetype): void;
+  playDeath(): void;
+  dispose(): void;
+}
+
+/** Level queries provided by the engine, so entities never touch the grid, doors or colliders directly. */
+export interface EntityWorld {
+  lineOfSight(from: THREE.Vector3, to: THREE.Vector3): boolean;
+  /** Next waypoint toward `to`; routes around closed doors when another way exists. */
+  nextStepToward(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3;
+  resolveCollision(pos: THREE.Vector3, radius: number): void;
+  randomPointNear(center: THREE.Vector3, radiusCells: number): THREE.Vector3 | null;
+  randomPatrolPoint(from: THREE.Vector3): THREE.Vector3 | null;
+}
+
+/** What entities may know about the player each frame. */
+export interface PlayerPerception {
+  pos: THREE.Vector3;
+  /** Horizontal unit vector the player (and flashlight) faces. */
+  forwardX: number;
+  forwardZ: number;
+  flashlightOn: boolean;
+  crouched: boolean;
+  hidden: boolean;
+}
+
+export interface EntityHooks {
+  onAttack(entity: BackroomsEntity, damage: number): void;
+  onScreech(entity: BackroomsEntity): void;
+  /** The death / banish animation finished; the entity is out of play until respawned. */
+  onRemoved(entity: BackroomsEntity, reason: 'killed' | 'banished'): void;
+}
+
+interface ArchetypeProfile {
+  label: string;
+  maxHealth: number;
+  speedPatrol: number;
+  speedChase: number;
+  attackDamage: number;
+  /** Vision range while the player's flashlight is off / on. */
+  sightDark: number;
+  sightLit: number;
+  /** Cosine of the vision half-angle; -1 sees all around. */
+  fovCos: number;
+  /** Multiplier on noise radii; 0 is deaf. */
+  hearing: number;
+  immune: boolean;
+  fearsLight: boolean;
+}
+
+function buildProfile(archetype: EntityArchetype, nightmare: boolean): ArchetypeProfile {
+  const hp = nightmare ? 1.35 : 1.0;
+  const spd = nightmare ? 1.18 : 1.0;
+  if (archetype === 'howler') {
+    // Nearly blind sound hunter: fast and fragile, it tracks footsteps and gunshots.
+    return {
+      label: 'Bacteria Howler',
+      maxHealth: Math.round(90 * hp),
+      speedPatrol: 1.85 * spd,
+      speedChase: 4.55 * spd,
+      attackDamage: nightmare ? 28 : 20,
+      sightDark: 3,
+      sightLit: 3,
+      fovCos: -1,
+      hearing: 1.6,
+      immune: false,
+      fearsLight: false,
+    };
+  }
+  if (archetype === 'smiler') {
+    // Bullets pass through it; holding the flashlight on it banishes it. Sees far in the dark, deaf.
+    return {
+      label: 'Smiler',
+      maxHealth: 1,
+      speedPatrol: 1.6 * spd,
+      speedChase: 3.3 * spd,
+      attackDamage: nightmare ? 32 : 22,
+      sightDark: 20,
+      sightLit: 11,
+      fovCos: -1,
+      hearing: 0,
+      immune: true,
+      fearsLight: true,
+    };
+  }
+  // Skin-Stealer: hides as an Almond Water bottle; slow but hits hard and spots a lit flashlight from afar.
+  return {
+    label: 'Skin-Stealer',
+    maxHealth: Math.round(165 * hp),
+    speedPatrol: 1.45 * spd,
+    speedChase: 3.65 * spd,
+    attackDamage: nightmare ? 38 : 28,
+    sightDark: 9,
+    sightLit: 16,
+    fovCos: 0.26,
+    hearing: 1.0,
+    immune: false,
+    fearsLight: false,
+  };
+}
+
+const LIT_CONE_COS = 0.86; // ~31°, inside the flashlight spot cone
+const LIT_RANGE = 15;
+const BANISH_EXPOSURE = 1.6; // seconds of direct light that banish a Smiler
+const REVEAL_RANGE = 2.2;
+const REVEAL_DURATION = 0.7;
+const DYING_DURATION = 0.8;
+const ATTACK_RANGE = 1.6;
+const STOP_RANGE = 1.25;
+const SEARCH_DURATION = 7;
+const GIVE_UP_AFTER = 8;
+const ENTITY_RADIUS = 0.44;
+
 export class BackroomsEntity {
   public readonly id: number;
   public readonly archetype: EntityArchetype;
   public readonly label: string;
   public readonly group: THREE.Group;
-  public readonly hitMeshes: THREE.Mesh[] = [];
-  public position: THREE.Vector3;
+  public readonly position: THREE.Vector3;
   public health: number;
-  public maxHealth: number;
+  public readonly maxHealth: number;
+  /** Can be hit and can attack (false while dying, removed, or waiting to respawn). */
   public alive = true;
-  public state: 'patrol' | 'chase' | 'stagger' = 'patrol';
+  public state: EntityState = 'patrol';
+  public voice: EntityVoice | null = null;
+  /** Line of sight to the player on the last update (drives audio occlusion). */
+  public hasLineOfSightToPlayer = false;
+
+  private readonly profile: ArchetypeProfile;
+  private readonly bodyHitMeshes: THREE.Mesh[] = [];
+  private readonly bodyParts: THREE.Object3D[] = [];
+  private disguiseGroup: THREE.Group | null = null;
+  private disguiseHitMesh: THREE.Mesh | null = null;
+  private smilerFaceMesh: THREE.Mesh | null = null;
+  private smilerHaloMat: THREE.MeshBasicMaterial | null = null;
 
   private patrolTarget = new THREE.Vector3();
-  private pathTimer = 0;
+  private lastKnown = new THREE.Vector3();
+  private hasLastKnown = false;
   private cachedNextWaypoint = new THREE.Vector3();
+  private pathTimer = 0;
   private animPhase = Math.random() * 10;
   private attackCooldown = 0;
   private staggerTimer = 0;
   private hitFlashTimer = 0;
   private screechCooldown = 0;
+  private lostTimer = 0;
+  private searchTimer = 0;
+  private timeSinceSeen = 999;
+  private lightExposure = 0;
+  private dyingTimer = 0;
+  private revealTimer = 0;
+  private removalReason: 'killed' | 'banished' = 'killed';
+  private stepTimer = 0;
+  private idleTimer = 3 + Math.random() * 5;
+  private twitchTimer = 4 + Math.random() * 4;
+  private twitchLeft = 0;
+  private stateAtLastUpdate: EntityState = 'patrol';
 
-  private readonly speedPatrol: number;
-  private readonly speedChase: number;
-  private readonly attackDamage: number;
-  private readonly detectRange: number;
   private readonly bodyMat: THREE.MeshStandardMaterial;
   private readonly accentMat: THREE.MeshStandardMaterial;
 
@@ -71,23 +207,19 @@ export class BackroomsEntity {
     spawnZ: number,
     textures: EntityTextureBundle,
     nightmare: boolean,
+    disguised = false,
   ) {
     this.id = id;
     this.archetype = archetype;
+    this.profile = buildProfile(archetype, nightmare);
+    this.label = this.profile.label;
+    this.maxHealth = this.profile.maxHealth;
+    this.health = this.maxHealth;
     this.group = new THREE.Group();
     this.position = this.group.position;
     this.position.set(spawnX, 0, spawnZ);
 
-    const hpMult = nightmare ? 1.35 : 1.0;
-    const spdMult = nightmare ? 1.18 : 1.0;
-
     if (archetype === 'howler') {
-      this.label = 'Bacteria Howler';
-      this.maxHealth = Math.round(90 * hpMult);
-      this.speedPatrol = 1.85 * spdMult;
-      this.speedChase = 4.55 * spdMult;
-      this.attackDamage = nightmare ? 28 : 20;
-      this.detectRange = 17;
       this.bodyMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: textures.howlerBodyTex,
@@ -106,12 +238,6 @@ export class BackroomsEntity {
       });
       this.buildHowlerMesh(textures.softShadowTex);
     } else if (archetype === 'smiler') {
-      this.label = 'Smiler';
-      this.maxHealth = Math.round(70 * hpMult);
-      this.speedPatrol = 2.1 * spdMult;
-      this.speedChase = 4.95 * spdMult;
-      this.attackDamage = nightmare ? 32 : 22;
-      this.detectRange = 19;
       this.bodyMat = new THREE.MeshStandardMaterial({
         color: 0x030305,
         roughness: 0.96,
@@ -126,12 +252,6 @@ export class BackroomsEntity {
       });
       this.buildSmilerMesh(textures.smilerFace, textures.smilerHaloTex, textures.softShadowTex);
     } else {
-      this.label = 'Skin-Stealer';
-      this.maxHealth = Math.round(165 * hpMult);
-      this.speedPatrol = 1.45 * spdMult;
-      this.speedChase = 3.65 * spdMult;
-      this.attackDamage = nightmare ? 38 : 28;
-      this.detectRange = 15;
       this.bodyMat = new THREE.MeshStandardMaterial({
         color: 0xd8cab8,
         map: textures.bruteSkinTex,
@@ -151,9 +271,12 @@ export class BackroomsEntity {
       this.buildBruteMesh(textures.softShadowTex);
     }
 
-    this.health = this.maxHealth;
+    this.bodyParts.push(...this.group.children);
+    if (archetype === 'brute') this.buildDisguise(textures.softShadowTex);
+
     this.cachedNextWaypoint.copy(this.position);
     this.patrolTarget.copy(this.position);
+    if (disguised) this.disguise();
   }
 
   private addContactShadow(radius: number, softShadowTex: THREE.CanvasTexture): void {
@@ -185,7 +308,7 @@ export class BackroomsEntity {
     box.userData.entityId = this.id;
     box.userData.isHead = isHead;
     this.group.add(box);
-    this.hitMeshes.push(box);
+    this.bodyHitMeshes.push(box);
   }
 
   private buildJointedLimb(
@@ -398,6 +521,8 @@ export class BackroomsEntity {
     haloPlane.position.z = -0.02;
     const facePlane = new THREE.Mesh(new THREE.PlaneGeometry(0.68, 0.68), smilerFaceMat);
     this.headRef.add(haloPlane, facePlane);
+    this.smilerFaceMesh = facePlane;
+    this.smilerHaloMat = haloMat;
     this.torsoRef.add(this.headRef);
 
     this.group.add(this.torsoRef);
@@ -496,6 +621,66 @@ export class BackroomsEntity {
     this.addHitbox(0.55, 0.5, 0.55, 2.02, true);
   }
 
+  private buildDisguise(softShadowTex: THREE.CanvasTexture): void {
+    // Looks exactly like an Almond Water pickup, except that it never spins and now and then shudders.
+    const disguise = new THREE.Group();
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: 0x5ea2b0,
+      roughness: 0.24,
+      metalness: 0.65,
+      emissive: new THREE.Color(0x215863),
+      emissiveIntensity: 0.45,
+    });
+    const capMat = new THREE.MeshStandardMaterial({ color: 0xd4a63a, roughness: 0.26, metalness: 0.85 });
+    const shadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.42, 0.42).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: softShadowTex, transparent: true, opacity: 0.78, depthWrite: false }),
+    );
+    shadow.position.y = 0.015;
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.3, 12), waterMat);
+    body.position.y = 0.15;
+    const shoulder = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.09, 0.07, 12), waterMat);
+    shoulder.position.y = 0.335;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 10), capMat);
+    cap.position.y = 0.39;
+    const hit = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.55, 0.4),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    );
+    hit.position.y = 0.25;
+    hit.userData.entityId = this.id;
+    hit.userData.isHead = false;
+    disguise.add(shadow, body, shoulder, cap, hit);
+    disguise.visible = false;
+    this.group.add(disguise);
+    this.disguiseGroup = disguise;
+    this.disguiseHitMesh = hit;
+  }
+
+  public get isDisguised(): boolean {
+    return this.state === 'disguised';
+  }
+
+  /** Counts toward proximity cues (heartbeat, HUD); a disguised Skin-Stealer must not give itself away. */
+  public get isThreat(): boolean {
+    return this.alive && this.state !== 'disguised';
+  }
+
+  public get isRemoved(): boolean {
+    return this.state === 'removed';
+  }
+
+  /** Hunting the player or a noise (used for door bashing). */
+  public get isEngaged(): boolean {
+    return this.alive && (this.state === 'chase' || this.state === 'investigate');
+  }
+
+  public activeHitMeshes(): THREE.Mesh[] {
+    if (!this.alive) return [];
+    if (this.state === 'disguised' && this.disguiseHitMesh) return [this.disguiseHitMesh];
+    return this.bodyHitMeshes;
+  }
+
   public faceWorldPoint(x: number, z: number): void {
     const dx = x - this.position.x;
     const dz = z - this.position.z;
@@ -504,60 +689,141 @@ export class BackroomsEntity {
     }
   }
 
+  private setBodyVisible(visible: boolean): void {
+    for (const part of this.bodyParts) part.visible = visible;
+    if (this.disguiseGroup) this.disguiseGroup.visible = !visible;
+  }
+
+  public disguise(): void {
+    if (!this.disguiseGroup) return;
+    this.state = 'disguised';
+    this.setBodyVisible(false);
+    this.group.scale.set(1, 1, 1);
+    this.hasLastKnown = false;
+    this.revealTimer = 0;
+  }
+
+  private reveal(): void {
+    this.setBodyVisible(true);
+    this.state = 'chase';
+    this.revealTimer = REVEAL_DURATION;
+    this.screechCooldown = 5.5;
+  }
+
+  /** Bring a removed entity back into play (director respawns). */
+  public respawn(x: number, z: number, disguised: boolean): void {
+    this.position.set(x, 0, z);
+    this.health = this.maxHealth;
+    this.alive = true;
+    this.group.visible = true;
+    this.group.scale.set(1, 1, 1);
+    this.bodyMat.emissive.setHex(0x000000);
+    this.bodyMat.emissiveIntensity = 0;
+    this.lightExposure = 0;
+    this.hasLastKnown = false;
+    this.lostTimer = 0;
+    this.timeSinceSeen = 999;
+    this.revealTimer = 0;
+    this.attackCooldown = 0;
+    this.pathTimer = 0;
+    this.cachedNextWaypoint.copy(this.position);
+    this.patrolTarget.copy(this.position);
+    if (this.smilerFaceMesh) this.smilerFaceMesh.visible = true;
+    this.state = 'patrol';
+    this.setBodyVisible(true);
+    if (disguised) this.disguise();
+    this.stateAtLastUpdate = this.state;
+  }
+
   public applyDamage(baseDamage: number, isHead: boolean): EntityHitResult {
     if (!this.alive) {
-      return { hit: false, killed: false, headshot: false, damage: 0, entityName: this.label };
+      return {
+        hit: false,
+        killed: false,
+        headshot: false,
+        immune: false,
+        revealed: false,
+        damage: 0,
+        entityName: this.label,
+      };
+    }
+    if (this.profile.immune) {
+      this.hitFlashTimer = 0.15;
+      return {
+        hit: true,
+        killed: false,
+        headshot: false,
+        immune: true,
+        revealed: false,
+        damage: 0,
+        entityName: this.label,
+      };
+    }
+
+    let revealed = false;
+    if (this.state === 'disguised') {
+      this.reveal();
+      revealed = true;
     }
     const finalDamage = Math.round(baseDamage * (isHead ? 1.85 : 1.0));
     this.health = Math.max(0, this.health - finalDamage);
     this.hitFlashTimer = 0.07;
-    this.state = 'stagger';
-    this.staggerTimer = 0.18;
+    if (!revealed) {
+      this.state = 'stagger';
+      this.staggerTimer = 0.18;
+    }
 
     // Subtle whole-body impact tint (never cartoonish red boots/gloves)
     this.bodyMat.emissive.setHex(0x3a0c08);
     this.bodyMat.emissiveIntensity = 0.28;
 
-    if (this.health <= 0) {
-      this.alive = false;
-      this.group.visible = false;
-      return {
-        hit: true,
-        killed: true,
-        headshot: isHead,
-        damage: finalDamage,
-        entityName: this.label,
-      };
-    }
-
+    const killed = this.health <= 0;
+    if (killed) this.beginDying('killed');
     return {
       hit: true,
-      killed: false,
+      killed,
       headshot: isHead,
+      immune: false,
+      revealed,
       damage: finalDamage,
       entityName: this.label,
     };
   }
 
-  public alertToPosition(pos: THREE.Vector3): void {
-    if (!this.alive) return;
-    if (this.position.distanceTo(pos) < 26) {
-      this.state = 'chase';
-      this.patrolTarget.copy(pos);
-      this.pathTimer = 0;
-    }
+  private beginDying(reason: 'killed' | 'banished'): void {
+    this.alive = false;
+    this.state = 'dying';
+    this.dyingTimer = DYING_DURATION;
+    this.removalReason = reason;
+    this.voice?.playDeath();
+  }
+
+  /** A sound of the given radius at `pos`. Howlers hear 1.6x as far; Smilers are deaf. */
+  public hearNoise(pos: THREE.Vector3, radius: number): void {
+    if (!this.alive || this.profile.hearing <= 0) return;
+    if (this.state === 'disguised' || this.state === 'retreat') return;
+    const d = Math.hypot(pos.x - this.position.x, pos.z - this.position.z);
+    if (d > radius * this.profile.hearing) return;
+    this.lastKnown.copy(pos);
+    this.hasLastKnown = true;
+    this.lostTimer = 0;
+    this.pathTimer = 0;
+    if (this.state === 'chase' || this.state === 'stagger') return;
+    // Howlers lunge at nearby sounds; everything else goes to look.
+    this.state = this.archetype === 'howler' && d < 10 ? 'chase' : 'investigate';
   }
 
   public update(
     delta: number,
-    playerPos: THREE.Vector3,
-    flashlightOn: boolean,
-    grid: Uint8Array,
-    pillars: PillarSpec[],
-    onAttackPlayer: (damage: number) => void,
-    onScreech: (dist: number) => void,
+    player: PlayerPerception,
+    world: EntityWorld,
+    hooks: EntityHooks,
   ): void {
-    if (!this.alive) return;
+    if (this.state === 'removed') return;
+    if (this.state === 'dying') {
+      this.updateDying(delta, hooks);
+      return;
+    }
 
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer -= delta;
@@ -566,93 +832,286 @@ export class BackroomsEntity {
         this.bodyMat.emissiveIntensity = 0;
       }
     }
-
     if (this.attackCooldown > 0) this.attackCooldown -= delta;
     if (this.screechCooldown > 0) this.screechCooldown -= delta;
 
-    const distToPlayer = Math.hypot(playerPos.x - this.position.x, playerPos.z - this.position.z);
-    const hasLOS =
-      distToPlayer < this.detectRange + (flashlightOn ? 4 : 0) &&
-      hasLineOfSight(this.position, playerPos, grid);
+    const dx = player.pos.x - this.position.x;
+    const dz = player.pos.z - this.position.z;
+    const dist = Math.hypot(dx, dz);
+    const los = dist < 32 && world.lineOfSight(this.position, player.pos);
+    this.hasLineOfSightToPlayer = los;
+    if (this.voice) {
+      this.voice.setPosition(this.position.x, 1.4, this.position.z);
+      this.voice.setOccluded(!los);
+    }
+
+    if (this.state === 'disguised') {
+      this.updateDisguised(delta, dist, player, hooks);
+      this.stateAtLastUpdate = this.state;
+      return;
+    }
+
+    if (this.revealTimer > 0) {
+      // Unfolding out of the bottle: grow to full height, then hunt.
+      this.revealTimer -= delta;
+      const t = 1 - Math.max(0, this.revealTimer) / REVEAL_DURATION;
+      this.group.scale.set(1, 0.25 + 0.75 * t, 1);
+      this.turnToward(player.pos.x, player.pos.z, delta, 12);
+      this.lastKnown.copy(player.pos);
+      this.hasLastKnown = true;
+      this.animate(delta, false);
+      this.stateAtLastUpdate = this.state;
+      return;
+    }
 
     if (this.state === 'stagger') {
       this.staggerTimer -= delta;
       this.torsoRef.rotation.x = -0.18;
       if (this.staggerTimer <= 0) {
-        this.state = 'chase';
+        if (this.hasLastKnown) this.state = 'chase';
+        else this.enterSearch(world);
       }
-    } else if (hasLOS || distToPlayer < 7.5) {
-      if (this.state !== 'chase' && this.screechCooldown <= 0) {
-        this.screechCooldown = 5.5;
-        onScreech(distToPlayer);
-      }
-      this.state = 'chase';
-    } else if (this.state === 'chase' && distToPlayer > 26) {
-      this.state = 'patrol';
-      this.pickRandomPatrolCell(grid);
     }
 
-    if (this.state !== 'stagger') {
-      const targetPos = this.state === 'chase' ? playerPos : this.patrolTarget;
+    // Smiler: the flashlight beam drives it back and, held on it long enough, banishes it.
+    let lit = false;
+    if (this.profile.fearsLight && this.state !== 'stagger') {
+      lit =
+        player.flashlightOn &&
+        los &&
+        dist < LIT_RANGE &&
+        dist > 0.01 &&
+        (-dx * player.forwardX - dz * player.forwardZ) / dist >= LIT_CONE_COS;
+      if (lit) {
+        this.lightExposure += delta;
+        this.state = 'retreat';
+        if (this.lightExposure >= BANISH_EXPOSURE) {
+          this.beginDying('banished');
+          return;
+        }
+      } else {
+        this.lightExposure = Math.max(0, this.lightExposure - delta * 0.5);
+        if (this.state === 'retreat') this.state = this.hasLastKnown ? 'chase' : 'patrol';
+      }
+    }
+
+    // Vision: range depends on the player's light and stance; most entities only see in front of them.
+    let sees = false;
+    if (this.state !== 'retreat' && this.state !== 'stagger') {
+      let sight = player.flashlightOn ? this.profile.sightLit : this.profile.sightDark;
+      if (player.crouched) sight *= 0.6;
+      if (player.hidden) sight = Math.min(sight, 1.0);
+      if (los && dist <= sight) {
+        if (dist < 3 || this.profile.fovCos <= -1) {
+          sees = true;
+        } else {
+          const fx = Math.sin(this.group.rotation.y);
+          const fz = Math.cos(this.group.rotation.y);
+          sees = (dx * fx + dz * fz) / dist >= this.profile.fovCos;
+        }
+      }
+      // Anything standing in the open within arm's reach gets noticed.
+      if (!sees && los && dist < 1.8 && !player.hidden) sees = true;
+      if (sees) {
+        this.lastKnown.copy(player.pos);
+        this.hasLastKnown = true;
+        this.lostTimer = 0;
+        this.timeSinceSeen = 0;
+        this.state = 'chase';
+      } else {
+        this.timeSinceSeen += delta;
+      }
+    }
+
+    if (this.state === 'chase' && this.stateAtLastUpdate !== 'chase' && this.screechCooldown <= 0) {
+      this.screechCooldown = 5.5;
+      hooks.onScreech(this);
+    }
+
+    // Losing the trail: walk to the last known spot, search around it, then go back to wandering.
+    if (this.state === 'chase' && !sees) {
+      this.lostTimer += delta;
+      if (!this.hasLastKnown || this.distanceTo(this.lastKnown) < 1.0 || this.lostTimer > GIVE_UP_AFTER) {
+        this.enterSearch(world);
+      }
+    } else if (this.state === 'investigate') {
+      if (!this.hasLastKnown || this.distanceTo(this.lastKnown) < 1.0) this.enterSearch(world);
+    } else if (this.state === 'search') {
+      this.searchTimer -= delta;
+      if (this.distanceTo(this.patrolTarget) < 1.0) this.pickSearchPoint(world);
+      if (this.searchTimer <= 0) {
+        if (this.disguiseGroup && this.timeSinceSeen > 20 && dist > 14) {
+          // A Skin-Stealer that lost its prey goes back to pretending to be supplies.
+          this.disguise();
+          this.stateAtLastUpdate = this.state;
+          return;
+        }
+        this.state = 'patrol';
+        this.pickPatrolPoint(world);
+      }
+    } else if (this.state === 'patrol') {
+      if (this.distanceTo(this.patrolTarget) < 1.2) this.pickPatrolPoint(world);
+    }
+
+    let target: THREE.Vector3 | null = null;
+    let speed = 0;
+    if (this.state === 'chase') {
+      target = sees ? player.pos : this.lastKnown;
+      speed = sees ? this.profile.speedChase : this.profile.speedChase * 0.8;
+    } else if (this.state === 'investigate') {
+      target = this.lastKnown;
+      speed = this.profile.speedChase * 0.7;
+    } else if (this.state === 'search') {
+      target = this.patrolTarget;
+      speed = this.profile.speedPatrol * 1.15;
+    } else if (this.state === 'patrol') {
+      target = this.patrolTarget;
+      speed = this.profile.speedPatrol;
+    }
+
+    let moved = false;
+    if (this.state === 'retreat') {
+      if (dist > 0.01) {
+        const step = 2.6 * delta;
+        this.position.x -= (dx / dist) * step;
+        this.position.z -= (dz / dist) * step;
+        world.resolveCollision(this.position, ENTITY_RADIUS);
+      }
+      this.turnToward(player.pos.x, player.pos.z, delta, 10);
+    } else if (target) {
       this.pathTimer -= delta;
       if (this.pathTimer <= 0) {
         this.pathTimer = this.state === 'chase' ? 0.35 : 0.8;
-        if (hasLOS && this.state === 'chase') {
-          this.cachedNextWaypoint.copy(playerPos);
-        } else {
-          this.cachedNextWaypoint.copy(findNextStepToward(this.position, targetPos, grid));
-        }
+        if (sees && this.state === 'chase') this.cachedNextWaypoint.copy(player.pos);
+        else this.cachedNextWaypoint.copy(world.nextStepToward(this.position, target));
       }
-
-      if (this.state === 'patrol' && this.position.distanceTo(this.patrolTarget) < 1.2) {
-        this.pickRandomPatrolCell(grid);
-      }
-
-      const dx = this.cachedNextWaypoint.x - this.position.x;
-      const dz = this.cachedNextWaypoint.z - this.position.z;
-      const len = Math.hypot(dx, dz);
-      const speed = this.state === 'chase' ? this.speedChase : this.speedPatrol;
-
-      if (len > 0.08 && distToPlayer > 1.25) {
-        const vx = (dx / len) * speed * delta;
-        const vz = (dz / len) * speed * delta;
-        this.position.x += vx;
-        this.position.z += vz;
-        resolveCircleWallCollision(this.position, 0.44, grid, pillars);
-
-        const desiredYaw = Math.atan2(dx, dz);
-        const diff = Math.atan2(
-          Math.sin(desiredYaw - this.group.rotation.y),
-          Math.cos(desiredYaw - this.group.rotation.y),
-        );
-        this.group.rotation.y += diff * Math.min(1, delta * 9);
-      } else if (hasLOS) {
-        // Face player directly when nearby or in line of sight
-        const desiredYaw = Math.atan2(playerPos.x - this.position.x, playerPos.z - this.position.z);
-        const diff = Math.atan2(
-          Math.sin(desiredYaw - this.group.rotation.y),
-          Math.cos(desiredYaw - this.group.rotation.y),
-        );
-        this.group.rotation.y += diff * Math.min(1, delta * 10);
-      }
-
-      if (distToPlayer <= 1.65 && this.attackCooldown <= 0) {
-        this.attackCooldown = 1.15;
-        onAttackPlayer(this.attackDamage);
+      const wx = this.cachedNextWaypoint.x - this.position.x;
+      const wz = this.cachedNextWaypoint.z - this.position.z;
+      const len = Math.hypot(wx, wz);
+      const holdDistance = this.state === 'chase' && sees && dist <= STOP_RANGE;
+      if (len > 0.08 && !holdDistance) {
+        const step = Math.min(speed * delta, len);
+        this.position.x += (wx / len) * step;
+        this.position.z += (wz / len) * step;
+        world.resolveCollision(this.position, ENTITY_RADIUS);
+        this.turnToward(this.cachedNextWaypoint.x, this.cachedNextWaypoint.z, delta, 9);
+        moved = true;
+      } else {
+        if (len <= 0.08) this.pathTimer = 0; // reached the waypoint: plan the next one right away
+        if (sees) this.turnToward(player.pos.x, player.pos.z, delta, 10);
       }
     }
 
-    const speedFactor = this.state === 'chase' ? 11.5 : 4.2;
-    this.animPhase += delta * speedFactor;
+    if (this.state === 'chase' && sees && dist <= ATTACK_RANGE && this.attackCooldown <= 0) {
+      this.attackCooldown = 1.15;
+      hooks.onAttack(this, this.profile.attackDamage);
+    }
+
+    if (moved && this.archetype !== 'smiler') {
+      this.stepTimer -= delta;
+      if (this.stepTimer <= 0) {
+        this.stepTimer = speed > 3 ? 0.3 : 0.55;
+        this.voice?.playStep(this.archetype === 'brute');
+      }
+    }
+    this.idleTimer -= delta;
+    if (this.idleTimer <= 0) {
+      this.idleTimer = (this.state === 'chase' ? 2.5 : 4.5) + Math.random() * 4;
+      this.voice?.playIdle(this.archetype);
+    }
+
+    this.animate(delta, lit);
+    this.stateAtLastUpdate = this.state;
+  }
+
+  private updateDisguised(
+    delta: number,
+    dist: number,
+    player: PlayerPerception,
+    hooks: EntityHooks,
+  ): void {
+    this.twitchTimer -= delta;
+    if (this.twitchTimer <= 0) {
+      this.twitchTimer = 5 + Math.random() * 4;
+      this.twitchLeft = 0.3;
+    }
+    if (this.disguiseGroup) {
+      if (this.twitchLeft > 0) {
+        this.twitchLeft -= delta;
+        this.disguiseGroup.rotation.z = Math.sin(this.twitchLeft * 70) * 0.07;
+      } else {
+        this.disguiseGroup.rotation.z = 0;
+      }
+    }
+    if (dist <= REVEAL_RANGE) {
+      this.reveal();
+      this.lastKnown.copy(player.pos);
+      this.hasLastKnown = true;
+      hooks.onScreech(this);
+    }
+  }
+
+  private updateDying(delta: number, hooks: EntityHooks): void {
+    // VHS-glitch collapse: flicker, jitter sideways and sink into the carpet.
+    this.dyingTimer -= delta;
+    const t = 1 - Math.max(0, this.dyingTimer) / DYING_DURATION;
+    this.group.scale.set(
+      1 + (Math.random() - 0.5) * 0.35 * t,
+      Math.max(0.02, 1 - t * 0.95),
+      1 + (Math.random() - 0.5) * 0.35 * t,
+    );
+    this.group.visible = Math.random() > t * 0.6;
+    if (this.dyingTimer <= 0) {
+      this.group.visible = false;
+      this.state = 'removed';
+      hooks.onRemoved(this, this.removalReason);
+    }
+  }
+
+  private enterSearch(world: EntityWorld): void {
+    this.state = 'search';
+    this.searchTimer = SEARCH_DURATION;
+    this.pickSearchPoint(world);
+  }
+
+  private pickSearchPoint(world: EntityWorld): void {
+    const center = this.hasLastKnown ? this.lastKnown : this.position;
+    const p = world.randomPointNear(center, 2);
+    this.patrolTarget.copy(p ?? center);
+    this.pathTimer = 0;
+  }
+
+  private pickPatrolPoint(world: EntityWorld): void {
+    const p = world.randomPatrolPoint(this.position);
+    if (p) this.patrolTarget.copy(p);
+    this.pathTimer = 0;
+  }
+
+  private distanceTo(p: THREE.Vector3): number {
+    return Math.hypot(p.x - this.position.x, p.z - this.position.z);
+  }
+
+  private turnToward(x: number, z: number, delta: number, rate: number): void {
+    const desiredYaw = Math.atan2(x - this.position.x, z - this.position.z);
+    const diff = Math.atan2(
+      Math.sin(desiredYaw - this.group.rotation.y),
+      Math.cos(desiredYaw - this.group.rotation.y),
+    );
+    this.group.rotation.y += diff * Math.min(1, delta * rate);
+  }
+
+  private animate(delta: number, lit: boolean): void {
+    const hunting = this.state === 'chase' || this.state === 'investigate';
+    this.animPhase += delta * (hunting ? 11.5 : 4.2);
 
     if (this.archetype === 'howler') {
       const twitch = Math.sin(this.animPhase * 2.7) * 0.14;
       this.headRef.rotation.z = twitch + Math.cos(this.animPhase * 1.1) * 0.18;
       if (this.state !== 'stagger') {
-        this.torsoRef.rotation.x = this.state === 'chase' ? 0.22 : 0.1;
+        this.torsoRef.rotation.x = hunting ? 0.22 : 0.1;
       }
-      this.leftArmRef.rotation.x = Math.sin(this.animPhase) * 0.55 - (this.state === 'chase' ? 0.6 : 0.25);
-      this.rightArmRef.rotation.x = -Math.sin(this.animPhase) * 0.55 - (this.state === 'chase' ? 0.6 : 0.25);
+      this.leftArmRef.rotation.x = Math.sin(this.animPhase) * 0.55 - (hunting ? 0.6 : 0.25);
+      this.rightArmRef.rotation.x = -Math.sin(this.animPhase) * 0.55 - (hunting ? 0.6 : 0.25);
       if (this.leftLegRef && this.rightLegRef) {
         this.leftLegRef.rotation.x = Math.sin(this.animPhase) * 0.45;
         this.rightLegRef.rotation.x = -Math.sin(this.animPhase) * 0.45;
@@ -662,6 +1121,12 @@ export class BackroomsEntity {
       this.torsoRef.rotation.z = Math.sin(this.animPhase * 0.32) * 0.08;
       this.leftArmRef.rotation.z = Math.sin(this.animPhase * 0.7) * 0.18;
       this.rightArmRef.rotation.z = -Math.sin(this.animPhase * 0.7) * 0.18;
+      if (this.smilerFaceMesh && this.smilerHaloMat) {
+        // Caught in the beam (or shot): the grin stutters like a bad tape.
+        const flicker = lit || this.hitFlashTimer > 0;
+        this.smilerFaceMesh.visible = !flicker || Math.random() > 0.35;
+        this.smilerHaloMat.opacity = flicker ? 0.15 + Math.random() * 0.5 : 0.48;
+      }
     } else {
       const limp = Math.abs(Math.sin(this.animPhase * 0.75)) * 0.07;
       this.torsoRef.position.y = 0.96 + limp;
@@ -671,20 +1136,6 @@ export class BackroomsEntity {
       if (this.leftLegRef && this.rightLegRef) {
         this.leftLegRef.rotation.x = Math.sin(this.animPhase * 0.75) * 0.38;
         this.rightLegRef.rotation.x = -Math.sin(this.animPhase * 0.75) * 0.38;
-      }
-    }
-  }
-
-  private pickRandomPatrolCell(grid: Uint8Array): void {
-    for (let tries = 0; tries < 25; tries++) {
-      const gx = 1 + Math.floor(Math.random() * (MAZE_SIZE - 2));
-      const gz = 1 + Math.floor(Math.random() * (MAZE_SIZE - 2));
-      if (grid[gz * MAZE_SIZE + gx] === 0) {
-        const wp = gridToWorld(gx, gz);
-        if (Math.hypot(wp.x - this.position.x, wp.z - this.position.z) > CELL_SIZE * 2) {
-          this.patrolTarget.copy(wp);
-          return;
-        }
       }
     }
   }

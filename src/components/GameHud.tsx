@@ -102,6 +102,18 @@ export const GameHud: React.FC<GameHudProps> = ({
               <div className="font-mono-hud text-[11px] text-[#9e9472]">
                 LEVEL 0 · MONO-YELLOW SECTOR
               </div>
+              <div
+                className="flex items-center gap-1 font-mono-hud text-[11px] text-[#9e9472]"
+                title="Rises with every tape you take"
+              >
+                <span className="mr-1">THREAT</span>
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <span
+                    key={idx}
+                    className={`h-1.5 w-3 ${idx <= hud.threatLevel ? 'bg-[#d93829]' : 'bg-[#363122]'}`}
+                  />
+                ))}
+              </div>
             </div>
 
             {/* Top-Center Mission Objective */}
@@ -148,6 +160,11 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {/* Top-Right Audio Toggle & Pointer Prompt */}
             <div className="pointer-events-auto flex items-center gap-2">
+              {hud.pointerLockBlocked && (
+                <span className="max-w-[220px] text-right text-[11px] leading-snug text-[#e8b838]">
+                  This page blocks mouse capture. Open the game in its own browser tab for full mouse look.
+                </span>
+              )}
               {!hud.pointerLocked && (
                 <button
                   type="button"
@@ -203,7 +220,11 @@ export const GameHud: React.FC<GameHudProps> = ({
             {hud.hitmarkerState !== 'none' && (
               <div
                 className={`absolute h-6 w-6 ${
-                  hud.hitmarkerState === 'kill' ? 'text-[#ef4444]' : 'text-[#fff7d6]'
+                  hud.hitmarkerState === 'kill'
+                    ? 'text-[#ef4444]'
+                    : hud.hitmarkerState === 'immune'
+                      ? 'text-[#7d8fa3]'
+                      : 'text-[#fff7d6]'
                 }`}
               >
                 <span className="absolute left-1/2 top-1/2 h-3 w-[2px] -translate-x-1/2 -translate-y-1/2 rotate-45 bg-current" />
@@ -237,6 +258,15 @@ export const GameHud: React.FC<GameHudProps> = ({
           <div className="relative z-10 flex items-end justify-between px-6 pb-5">
             {/* Bottom-Left Survivor Vitals */}
             <div className="flex flex-col gap-2.5 border border-[#d4be74]/20 bg-[#0e0d09]/82 px-4 py-3 min-w-[230px]">
+              {(hud.crouched || hud.hidden) && (
+                <div
+                  className={`font-mono-hud text-[11px] tracking-wider ${
+                    hud.hidden ? 'text-[#5ce696]' : 'text-[#e8b838]'
+                  }`}
+                >
+                  {hud.hidden ? 'HIDDEN · they cannot see you here' : 'CROUCHED · silent, slow, harder to spot'}
+                </div>
+              )}
               {/* Health */}
               <div className="flex flex-col gap-1">
                 <div className="flex items-center justify-between text-xs">
@@ -299,6 +329,10 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span>WASD Move</span>
               <span className="text-[#786f50]">·</span>
               <span>Shift Sprint</span>
+              <span className="text-[#786f50]">·</span>
+              <span>C Crouch</span>
+              <span className="text-[#786f50]">·</span>
+              <span>E Door</span>
               <span className="text-[#786f50]">·</span>
               <span>LMB / Space Fire</span>
               <span className="text-[#786f50]">·</span>
@@ -372,9 +406,10 @@ export const GameHud: React.FC<GameHudProps> = ({
               LEVEL 0: THRESHOLD
             </h1>
             <p className="mt-4 text-sm leading-relaxed text-[#cfc6a6]">
-              Trapped beneath endlessly humming fluorescent fixtures, you carry a suppressed sidearm
-              and a failing tactical light. Recover all 4 VHS Data Tapes scattered across the maze
-              to unseal the Sector 00 Exit Door before the entities hunting the halls find you.
+              Trapped beneath endlessly humming fluorescent fixtures with a suppressed sidearm, one
+              spare magazine and a dying flashlight. Recover all 4 VHS Data Tapes to unseal the
+              Sector 00 Exit. Every tape you take wakes the level a little more, and what you kill
+              does not stay dead.
             </p>
 
             {/* Difficulty Selection */}
@@ -415,14 +450,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                 Enter Level 0
               </button>
               <span className="font-mono-hud text-xs text-[#9e9472]">
-                WASD Move · Mouse Look &amp; Shoot · RMB Aim · F Light · R Reload
+                WASD Move · Mouse Look &amp; Shoot · RMB Aim · F Light · R Reload · C Crouch · E Door
               </span>
             </div>
           </div>
 
           <div className="flex items-center justify-between font-mono-hud text-xs text-[#9e9472]">
-            <span>Entities Detected: Howler · Smiler · Skin-Stealer</span>
-            <span>Almond Water restores Vitality &amp; Battery</span>
+            <span>Howler hunts by sound · Smiler fears your light · Skin-Stealer mimics supplies</span>
+            <span>Close doors behind you · Hide under desks · Batteries do not recharge</span>
           </div>
         </div>
       )}
