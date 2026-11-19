@@ -39,7 +39,7 @@ export interface EntityVoice {
 export interface EntityWorld {
   lineOfSight(from: THREE.Vector3, to: THREE.Vector3): boolean;
   /** Next waypoint toward `to`; routes around closed doors when another way exists. */
-  nextStepToward(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3;
+  nextStepToward(from: THREE.Vector3, to: THREE.Vector3, allowClosedDoors?: boolean): THREE.Vector3 | null;
   resolveCollision(pos: THREE.Vector3, radius: number): void;
   randomPointNear(center: THREE.Vector3, radiusCells: number): THREE.Vector3 | null;
   randomPatrolPoint(from: THREE.Vector3): THREE.Vector3 | null;
@@ -187,6 +187,8 @@ export class BackroomsEntity {
   private idleTimer = 3 + Math.random() * 5;
   private twitchTimer = 4 + Math.random() * 4;
   private twitchLeft = 0;
+  private stuckTimer = 0;
+  private lastProgressPos = new THREE.Vector3();
   private stateAtLastUpdate: EntityState = 'patrol';
 
   private readonly bodyMat: THREE.MeshStandardMaterial;
@@ -276,6 +278,7 @@ export class BackroomsEntity {
 
     this.cachedNextWaypoint.copy(this.position);
     this.patrolTarget.copy(this.position);
+    this.lastProgressPos.copy(this.position);
     if (disguised) this.disguise();
   }
 
@@ -699,15 +702,20 @@ export class BackroomsEntity {
     this.state = 'disguised';
     this.setBodyVisible(false);
     this.group.scale.set(1, 1, 1);
+    this.disguiseGroup.rotation.z = 0;
+    this.twitchLeft = 0;
     this.hasLastKnown = false;
     this.revealTimer = 0;
+    this.stuckTimer = 0;
   }
 
   private reveal(): void {
     this.setBodyVisible(true);
     this.state = 'chase';
     this.revealTimer = REVEAL_DURATION;
+    this.group.scale.set(1, 0.25, 1);
     this.screechCooldown = 5.5;
+    this.stuckTimer = 0;
   }
 
   /** Bring a removed entity back into play (director respawns). */
@@ -717,18 +725,30 @@ export class BackroomsEntity {
     this.alive = true;
     this.group.visible = true;
     this.group.scale.set(1, 1, 1);
+    this.torsoRef.rotation.set(0, 0, 0);
     this.bodyMat.emissive.setHex(0x000000);
     this.bodyMat.emissiveIntensity = 0;
     this.lightExposure = 0;
     this.hasLastKnown = false;
+    this.hasLineOfSightToPlayer = false;
     this.lostTimer = 0;
+    this.searchTimer = 0;
+    this.staggerTimer = 0;
+    this.dyingTimer = 0;
+    this.hitFlashTimer = 0;
+    this.screechCooldown = 0;
     this.timeSinceSeen = 999;
     this.revealTimer = 0;
     this.attackCooldown = 0;
     this.pathTimer = 0;
+    this.twitchLeft = 0;
+    this.stuckTimer = 0;
+    if (this.disguiseGroup) this.disguiseGroup.rotation.z = 0;
     this.cachedNextWaypoint.copy(this.position);
     this.patrolTarget.copy(this.position);
+    this.lastProgressPos.copy(this.position);
     if (this.smilerFaceMesh) this.smilerFaceMesh.visible = true;
+    if (this.smilerHaloMat) this.smilerHaloMat.opacity = 0.48;
     this.state = 'patrol';
     this.setBodyVisible(true);
     if (disguised) this.disguise();
@@ -813,6 +833,16 @@ export class BackroomsEntity {
     this.state = this.archetype === 'howler' && d < 10 ? 'chase' : 'investigate';
   }
 
+  /** Director-level omniscience (e.g. final tape): every active entity (including deaf Smilers) knows where you are. */
+  public alertTo(pos: THREE.Vector3): void {
+    if (!this.alive || this.state === 'disguised' || this.state === 'retreat') return;
+    this.lastKnown.copy(pos);
+    this.hasLastKnown = true;
+    this.lostTimer = 0;
+    this.pathTimer = 0;
+    if (this.state !== 'stagger') this.state = 'chase';
+  }
+
   public update(
     delta: number,
     player: PlayerPerception,
@@ -846,7 +876,7 @@ export class BackroomsEntity {
     }
 
     if (this.state === 'disguised') {
-      this.updateDisguised(delta, dist, player, hooks);
+      this.updateDisguised(delta, dist, los, player, hooks);
       this.stateAtLastUpdate = this.state;
       return;
     }
@@ -868,6 +898,7 @@ export class BackroomsEntity {
       this.staggerTimer -= delta;
       this.torsoRef.rotation.x = -0.18;
       if (this.staggerTimer <= 0) {
+        this.torsoRef.rotation.x = 0;
         if (this.hasLastKnown) this.state = 'chase';
         else this.enterSearch(world);
       }
@@ -982,8 +1013,19 @@ export class BackroomsEntity {
       this.pathTimer -= delta;
       if (this.pathTimer <= 0) {
         this.pathTimer = this.state === 'chase' ? 0.35 : 0.8;
-        if (sees && this.state === 'chase') this.cachedNextWaypoint.copy(player.pos);
-        else this.cachedNextWaypoint.copy(world.nextStepToward(this.position, target));
+        if (sees && this.state === 'chase') {
+          this.cachedNextWaypoint.copy(player.pos);
+        } else {
+          const stepPos = world.nextStepToward(this.position, target, this.isEngaged);
+          if (stepPos) {
+            this.cachedNextWaypoint.copy(stepPos);
+          } else {
+            // Closed door seals off this non-engaged patrol/search target; pick another reachable spot.
+            if (this.state === 'search') this.pickSearchPoint(world);
+            else if (this.state === 'patrol') this.pickPatrolPoint(world);
+            this.cachedNextWaypoint.copy(this.position);
+          }
+        }
       }
       const wx = this.cachedNextWaypoint.x - this.position.x;
       const wz = this.cachedNextWaypoint.z - this.position.z;
@@ -996,6 +1038,24 @@ export class BackroomsEntity {
         world.resolveCollision(this.position, ENTITY_RADIUS);
         this.turnToward(this.cachedNextWaypoint.x, this.cachedNextWaypoint.z, delta, 9);
         moved = true;
+
+        // If patrolling/searching gets pinned against a corner or closed door, pick a new destination.
+        if (this.state === 'patrol' || this.state === 'search') {
+          if (Math.hypot(this.position.x - this.lastProgressPos.x, this.position.z - this.lastProgressPos.z) > 0.25) {
+            this.lastProgressPos.copy(this.position);
+            this.stuckTimer = 0;
+          } else {
+            this.stuckTimer += delta;
+            if (this.stuckTimer > 1.6) {
+              this.stuckTimer = 0;
+              if (this.state === 'search') this.pickSearchPoint(world);
+              else this.pickPatrolPoint(world);
+            }
+          }
+        } else {
+          this.stuckTimer = 0;
+          this.lastProgressPos.copy(this.position);
+        }
       } else {
         if (len <= 0.08) this.pathTimer = 0; // reached the waypoint: plan the next one right away
         if (sees) this.turnToward(player.pos.x, player.pos.z, delta, 10);
@@ -1027,6 +1087,7 @@ export class BackroomsEntity {
   private updateDisguised(
     delta: number,
     dist: number,
+    los: boolean,
     player: PlayerPerception,
     hooks: EntityHooks,
   ): void {
@@ -1043,7 +1104,7 @@ export class BackroomsEntity {
         this.disguiseGroup.rotation.z = 0;
       }
     }
-    if (dist <= REVEAL_RANGE) {
+    if (los && dist <= REVEAL_RANGE) {
       this.reveal();
       this.lastKnown.copy(player.pos);
       this.hasLastKnown = true;
@@ -1130,6 +1191,7 @@ export class BackroomsEntity {
     } else {
       const limp = Math.abs(Math.sin(this.animPhase * 0.75)) * 0.07;
       this.torsoRef.position.y = 0.96 + limp;
+      if (this.state !== 'stagger') this.torsoRef.rotation.x = 0;
       this.torsoRef.rotation.z = Math.sin(this.animPhase * 0.75) * 0.08;
       this.leftArmRef.rotation.x = Math.sin(this.animPhase * 0.75) * 0.42;
       this.rightArmRef.rotation.x = -Math.sin(this.animPhase * 0.75) * 0.25 - 0.3;

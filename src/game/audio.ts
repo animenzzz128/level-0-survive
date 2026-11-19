@@ -51,10 +51,12 @@ class SpatialVoice implements EntityVoice {
   }
 
   setPosition(x: number, y: number, z: number): void {
+    if (this.ctx.state === 'closed') return;
     placePanner(this.panner, x, y, z);
   }
 
   setOccluded(occluded: boolean): void {
+    if (this.ctx.state === 'closed') return;
     this.occlusion.frequency.setTargetAtTime(occluded ? 650 : 9000, this.ctx.currentTime, 0.08);
   }
 
@@ -110,12 +112,14 @@ class SpatialVoice implements EntityVoice {
   }
 
   playStep(heavy: boolean): void {
+    if (this.ctx.state === 'closed') return;
     const now = this.ctx.currentTime;
     this.noiseBurst(now, heavy ? 0.16 : 0.1, 'lowpass', heavy ? 170 : 260, heavy ? 0.9 : 0.55);
     if (heavy) this.tone(now, 0.18, 'sine', 70, 38, 0.6, 400);
   }
 
   playScreech(archetype: EntityArchetype): void {
+    if (this.ctx.state === 'closed') return;
     const now = this.ctx.currentTime;
     if (archetype === 'howler') {
       // Ragged, warbling shriek
@@ -163,6 +167,7 @@ class SpatialVoice implements EntityVoice {
   }
 
   playIdle(archetype: EntityArchetype): void {
+    if (this.ctx.state === 'closed') return;
     const now = this.ctx.currentTime;
     if (archetype === 'howler') {
       // Clicking echolocation chirps
@@ -179,6 +184,7 @@ class SpatialVoice implements EntityVoice {
   }
 
   playDeath(): void {
+    if (this.ctx.state === 'closed') return;
     const now = this.ctx.currentTime;
     this.tone(now, 0.7, 'sawtooth', 320, 40, 0.6, 1200);
     this.noiseBurst(now, 0.5, 'highpass', 3000, 0.45);
@@ -188,10 +194,14 @@ class SpatialVoice implements EntityVoice {
   }
 
   dispose(): void {
-    this.input.disconnect();
-    this.occlusion.disconnect();
-    this.panner.disconnect();
-    this.reverbSend.disconnect();
+    try {
+      this.input.disconnect();
+      this.occlusion.disconnect();
+      this.panner.disconnect();
+      this.reverbSend.disconnect();
+    } catch {
+      /* ignore if context already closed */
+    }
   }
 }
 
@@ -205,7 +215,9 @@ export class HorrorAudioEngine {
   private humOsc2: OscillatorNode | null = null;
   private humGain: GainNode | null = null;
   private droneOsc: OscillatorNode | null = null;
+  private droneWobbleOsc: OscillatorNode | null = null;
   private droneGain: GainNode | null = null;
+  private readonly pendingCleanupTimers = new Set<number>();
   private threatLevel = 0;
   private heartbeatTimer = 0;
   private muted = false;
@@ -327,16 +339,16 @@ export class HorrorAudioEngine {
     this.droneOsc = this.ctx.createOscillator();
     this.droneOsc.type = 'sine';
     this.droneOsc.frequency.setValueAtTime(41, now);
-    const droneWobble = this.ctx.createOscillator();
+    this.droneWobbleOsc = this.ctx.createOscillator();
     const droneWobbleGain = this.ctx.createGain();
-    droneWobble.frequency.value = 0.13;
+    this.droneWobbleOsc.frequency.value = 0.13;
     droneWobbleGain.gain.value = 1.6;
-    droneWobble.connect(droneWobbleGain);
+    this.droneWobbleOsc.connect(droneWobbleGain);
     droneWobbleGain.connect(this.droneOsc.frequency);
     this.droneOsc.connect(this.droneGain);
     this.droneGain.connect(this.dryGain);
     this.droneOsc.start();
-    droneWobble.start();
+    this.droneWobbleOsc.start();
   }
 
   /** 0 at start, +1 per recovered tape: louder, harsher hum and a rising sub-bass drone. */
@@ -431,7 +443,15 @@ export class HorrorAudioEngine {
       noise(now, 0.4, 'highpass', 2500, 0.6);
       tone(now, 0.5, 'sine', 60, 30, 1.0);
     }
-    window.setTimeout(() => panner.disconnect(), (lastEnd - now + 0.3) * 1000);
+    const timerId = window.setTimeout(() => {
+      this.pendingCleanupTimers.delete(timerId);
+      try {
+        panner.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }, (lastEnd - now + 0.3) * 1000);
+    this.pendingCleanupTimers.add(timerId);
   }
 
   public updateAmbient(delta: number, nearestEntityDist: number, isPlaying: boolean): void {
@@ -674,30 +694,26 @@ export class HorrorAudioEngine {
   }
 
   public dispose(): void {
-    if (this.humOsc1) {
+    for (const timerId of this.pendingCleanupTimers) {
+      window.clearTimeout(timerId);
+    }
+    this.pendingCleanupTimers.clear();
+    for (const osc of [this.humOsc1, this.humOsc2, this.droneOsc, this.droneWobbleOsc]) {
+      if (!osc) continue;
       try {
-        this.humOsc1.stop();
+        osc.stop();
       } catch {
         /* ignore */
       }
     }
-    if (this.humOsc2) {
-      try {
-        this.humOsc2.stop();
-      } catch {
-        /* ignore */
-      }
-    }
-    if (this.droneOsc) {
-      try {
-        this.droneOsc.stop();
-      } catch {
-        /* ignore */
-      }
-    }
+    this.humOsc1 = null;
+    this.humOsc2 = null;
+    this.droneOsc = null;
+    this.droneWobbleOsc = null;
     if (this.ctx) {
       void this.ctx.close();
       this.ctx = null;
     }
+    this.started = false;
   }
 }

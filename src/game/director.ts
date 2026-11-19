@@ -53,7 +53,7 @@ export class ThreatDirector {
 
   private respawnDelay(archetype: EntityArchetype): number {
     const base = RESPAWN_SECONDS[archetype] * (this.difficulty === 'nightmare' ? 0.6 : 1);
-    return base * (1 - 0.12 * this.threatLevel);
+    return base * Math.max(0.35, 1 - 0.12 * this.threatLevel);
   }
 
   /** An entity finished dying (or was banished by light): bring it back later, somewhere else. */

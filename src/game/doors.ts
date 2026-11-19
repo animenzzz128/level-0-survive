@@ -146,6 +146,7 @@ export class DoorInstance {
     this.closed = !this.closed;
     this.panelCollider.active = this.closed;
     this.bashTimer = 0;
+    this.bashSoundTimer = 0;
     return true;
   }
 
@@ -155,6 +156,7 @@ export class DoorInstance {
     this.broken = true;
     this.panelCollider.active = false;
     this.bashTimer = 0;
+    this.bashSoundTimer = 0;
     this.pivot.rotation.z = 0.06;
   }
 
