@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "art_direction_brief": "docs/art/art-bible.md",
-  "blueprints": "docs/art/blueprints/",
+  "art_direction_brief": "docs/design/art/art-bible.md",
+  "blueprints": "docs/design/art/blueprints/",
   "notes": "All entries planned. Keep the procedural placeholder until the glb passes art-bible.md section 3.8 checks.",
   "assets": [
     {
@@ -81,7 +81,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -166,7 +166,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -247,7 +247,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -316,7 +316,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -356,7 +356,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -395,7 +395,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -431,7 +431,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -468,7 +468,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -504,7 +504,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -541,7 +541,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -582,7 +582,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -622,7 +622,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -664,7 +664,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -701,7 +701,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -737,7 +737,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -773,7 +773,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -809,7 +809,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -844,7 +844,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -879,7 +879,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -913,7 +913,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -947,7 +947,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -981,7 +981,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
@@ -1014,7 +1014,7 @@
         "created_at": "",
         "license": "CC BY-SA 3.0 (decided 2026-11-19, see CREDITS.md)",
         "attribution": "Concept from the Backrooms Wiki where applicable; see CREDITS.md",
-        "prompt_or_source_record": "docs/art/prompts.md"
+        "prompt_or_source_record": "docs/design/art/prompts.md"
       },
       "verification": {
         "native_scale_reviewed": false,
