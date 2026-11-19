@@ -1,3 +1,4 @@
+import { DEFAULT_BINDINGS, KeyHints, keyHintsFor } from './controls';
 import { HudTip } from './types';
 
 /** Facts about the current frame the guide may react to. */
@@ -62,28 +63,28 @@ const RULES: TipRule[] = [
     id: 'noise',
     priority: 3,
     title: 'Something is close',
-    text: 'Sprinting is loud, walking is quiet, crouching (C) is silent. Gunshots carry across the level.',
+    text: 'Sprinting is loud, walking is quiet, crouching ({crouch}) is silent. Gunshots carry across the level.',
     when: (c) => c.somethingNear,
   },
   {
     id: 'battery_low',
     priority: 3,
     title: 'Battery low',
-    text: 'Spare cells with a yellow band lie on the floor. Switch the light off (F) under working ceiling lights.',
+    text: 'Spare cells with a yellow band lie on the floor. Switch the light off ({flashlight}) under working ceiling lights.',
     when: (c) => c.battery < 25,
   },
   {
     id: 'ammo_low',
     priority: 3,
     title: 'Running out of rounds',
-    text: 'Killed entities come back. Doors (E) and hiding (C) cost nothing; fight only when cornered.',
+    text: 'Killed entities come back. Doors ({interact}) and hiding ({crouch}) cost nothing; fight only when cornered.',
     when: (c) => c.ammoTotal <= 6,
   },
   {
     id: 'winded',
     priority: 2,
     title: 'Out of breath',
-    text: 'You cannot sprint until you catch your breath. Let go of Shift to recover sooner.',
+    text: 'You cannot sprint until you catch your breath. Let go of {sprint} to recover sooner.',
     when: (c) => c.winded,
   },
   {
@@ -97,28 +98,28 @@ const RULES: TipRule[] = [
     id: 'door',
     priority: 2,
     title: 'Doors',
-    text: 'Press E to close a door behind you. Entities must go around it, or batter it down.',
+    text: 'Press {interact} to close a door behind you. Entities must go around it, or batter it down.',
     when: (c) => c.nearDoor,
   },
   {
     id: 'hide',
     priority: 2,
     title: 'Hiding',
-    text: 'Crouch (C) under a desk to hide. Break line of sight first: they search where they last saw you.',
+    text: 'Crouch ({crouch}) under a desk to hide. Break line of sight first: they search where they last saw you.',
     when: (c) => c.nearDesk && !c.crouched,
   },
   {
     id: 'flashlight',
     priority: 1,
     title: 'Flashlight',
-    text: 'F toggles your light. The battery never recharges on its own, and the beam makes you easier to spot.',
+    text: '{flashlight} toggles your light. The battery never recharges on its own, and the beam makes you easier to spot.',
     when: (c) => c.elapsed > 14 && c.flashlightOn,
   },
   {
     id: 'start',
     priority: 1,
     title: 'Find the four VHS tapes',
-    text: 'Each tape hisses with static: follow the sound. WASD to move, mouse to look, Shift to sprint.',
+    text: 'Each tape hisses with static: follow the sound. {move} to move, mouse to look, {sprint} to sprint.',
     when: (c) => c.elapsed > 1.2,
   },
 ];
@@ -135,6 +136,9 @@ export class GuideDirector {
   private current: TipRule | null = null;
   private timer = 0;
   private gap = 0;
+
+  /** Key names for {action} placeholders in tip texts, from the player's bindings. */
+  public keyHints: KeyHints = keyHintsFor(DEFAULT_BINDINGS);
 
   constructor(
     private readonly seen: Set<string>,
@@ -185,6 +189,8 @@ export class GuideDirector {
 
   public get tip(): HudTip | null {
     if (!this.current) return null;
-    return { id: this.current.id, title: this.current.title, text: this.current.text };
+    const hints = this.keyHints as unknown as Record<string, string>;
+    const text = this.current.text.replace(/\{(\w+)\}/g, (token, name: string) => hints[name] ?? token);
+    return { id: this.current.id, title: this.current.title, text };
   }
 }

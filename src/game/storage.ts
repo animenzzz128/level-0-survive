@@ -4,6 +4,7 @@
 // Saved data is versioned (save-systems skill): settings and records are stored as { version, data },
 // validated field by field on load, migrated forward from older formats, and never overwritten when a
 // newer build has already written a newer version (e.g. an old tab left open after an update).
+import { DEFAULT_BINDINGS, KeyBindings, sanitizeBindings } from './controls';
 import { DifficultyMode } from './types';
 
 export type QualityLevel = 'auto' | 'low' | 'medium' | 'high';
@@ -26,6 +27,14 @@ export interface GameSettings {
   reduceMotion: boolean;
   /** Smooth light flicker, no flashlight stutter or muzzle light, softer damage flash. */
   reduceFlashing: boolean;
+  /** Keyboard key per action (KeyboardEvent.code; '' = unbound). */
+  bindings: KeyBindings;
+  /** Press once to aim / sprint / crouch and again to stop, instead of holding the key. */
+  aimToggle: boolean;
+  sprintToggle: boolean;
+  crouchToggle: boolean;
+  /** Size of all interface text and panels (1 = 16 px base text). */
+  uiScale: number;
 }
 
 /** Allowed ranges, shared with the Settings panel sliders. */
@@ -34,6 +43,7 @@ export const SETTINGS_LIMITS = {
   volume: { min: 0, max: 1 },
   fov: { min: 60, max: 95 },
   shakeStrength: { min: 0, max: 1 },
+  uiScale: { min: 0.85, max: 1.5 },
 } as const;
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -46,6 +56,11 @@ export const DEFAULT_SETTINGS: GameSettings = {
   shakeStrength: 0.75,
   reduceMotion: false,
   reduceFlashing: false,
+  bindings: { ...DEFAULT_BINDINGS },
+  aimToggle: false,
+  sprintToggle: false,
+  crouchToggle: true,
+  uiScale: 1,
 };
 
 export type RunMode = 'random' | 'daily';
@@ -67,7 +82,9 @@ const SETTINGS_VERSION = 1;
 // so daily times from the old key are not carried over. Older builds keep their own key untouched.
 const KEY_RECORDS_LEGACY = 'level0.records.v1';
 const KEY_RECORDS = 'level0.records.v2';
-const RECORDS_VERSION = 2;
+// v3: the generator changed again (tapes keep their distance from the exit, landmarks, arrow signs), so daily
+// layouts differ from the ones v2 dailies were set on. Best times per difficulty are kept.
+const RECORDS_VERSION = 3;
 const DAILY_RECORD_DAYS = 30;
 const KEY_TIPS = 'level0.tips-seen.v1';
 const KEY_HOWTO = 'level0.howto-seen.v1';
@@ -122,6 +139,11 @@ export function sanitizeSettings(raw: unknown): GameSettings {
     shakeStrength: clampNumber(r.shakeStrength, L.shakeStrength.min, L.shakeStrength.max, DEFAULT_SETTINGS.shakeStrength),
     reduceMotion: typeof r.reduceMotion === 'boolean' ? r.reduceMotion : DEFAULT_SETTINGS.reduceMotion,
     reduceFlashing: typeof r.reduceFlashing === 'boolean' ? r.reduceFlashing : DEFAULT_SETTINGS.reduceFlashing,
+    bindings: sanitizeBindings(r.bindings),
+    aimToggle: typeof r.aimToggle === 'boolean' ? r.aimToggle : DEFAULT_SETTINGS.aimToggle,
+    sprintToggle: typeof r.sprintToggle === 'boolean' ? r.sprintToggle : DEFAULT_SETTINGS.sprintToggle,
+    crouchToggle: typeof r.crouchToggle === 'boolean' ? r.crouchToggle : DEFAULT_SETTINGS.crouchToggle,
+    uiScale: clampNumber(r.uiScale, L.uiScale.min, L.uiScale.max, DEFAULT_SETTINGS.uiScale),
   };
 }
 
@@ -206,7 +228,11 @@ function sanitizeRecords(raw: unknown): Record<string, RunRecord> {
 function loadRecords(): { records: Record<string, RunRecord>; writable: boolean } {
   const stored = readJson(KEY_RECORDS);
   if (isEnvelope(stored)) {
-    return { records: sanitizeRecords(stored.data), writable: stored.version <= RECORDS_VERSION };
+    const records = sanitizeRecords(stored.data);
+    if (stored.version < 3) {
+      for (const key of Object.keys(records)) if (!key.startsWith('all:')) delete records[key];
+    }
+    return { records, writable: stored.version <= RECORDS_VERSION };
   }
   // Migrate v1: keep best times across all layouts; drop dailies, whose layouts the generator fix changed.
   const legacy = sanitizeRecords(readJson(KEY_RECORDS_LEGACY));

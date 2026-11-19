@@ -18,7 +18,7 @@ const textures = {
 // Open floor: always in sight, straight-line steps, no walls.
 const world: EntityWorld = {
   lineOfSight: () => true,
-  nextStepToward: (_from, to) => to.clone(),
+  findPath: (_from, to) => [to.clone()],
   resolveCollision: () => {},
   randomPointNear: (center) => center.clone(),
   randomPatrolPoint: () => null,

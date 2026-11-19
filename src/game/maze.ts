@@ -45,6 +45,33 @@ export interface DoorSpec {
   axis: 'x' | 'z';
 }
 
+export type LandmarkKind = 'vending' | 'cooler' | 'crt' | 'neon';
+
+/** A distinctive prop, one per quadrant, standing against a wall so areas can be told apart. */
+export interface LandmarkSpec {
+  kind: LandmarkKind;
+  gx: number;
+  gz: number;
+  x: number;
+  z: number;
+  /** Front faces away from the wall it stands against (models are built facing +Z). */
+  rotY: number;
+}
+
+/** Spray-painted arrow on a corridor wall, pointing along the way to the exit (now and then the wrong way). */
+export interface ArrowSignSpec {
+  gx: number;
+  gz: number;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  /** Mirror of the arrow texture (it points to local +X): 1 or -1. */
+  flip: 1 | -1;
+  /** False for the few signs that lie. */
+  correct: boolean;
+}
+
 /** Office desk the player can crouch under to hide. */
 export interface DeskSpec {
   x: number;
@@ -84,7 +111,24 @@ export interface BackroomsLevelData {
   graffiti: GraffitiSpec[];
   doors: DoorSpec[];
   desks: DeskSpec[];
+  landmarks: LandmarkSpec[];
+  signs: ArrowSignSpec[];
 }
+
+/** Every tape is at least this many steps of walking from the exit, so the last one is never beside it. */
+export const MIN_TAPE_EXIT_STEPS = 8;
+const ARROW_SIGNS = 10;
+/** Share of arrows that point the wrong way: Level 0 is not to be trusted. */
+const ARROW_WRONG_CHANCE = 0.2;
+const LANDMARK_KINDS: LandmarkKind[] = ['vending', 'cooler', 'crt', 'neon'];
+/** Depth of a landmark prop from the wall it stands against (m). */
+export const LANDMARK_DEPTH = 0.8;
+const SIDES: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 const PICKUP_COUNTS: Array<[PickupKind, number]> = [
   ['ammo', 3],
@@ -300,6 +344,10 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     }
   }
 
+  // Walking distance from the exit: the last tape must never sit a few steps from the door.
+  const exitDist = computeBfsDistances(grid, exitCell.gx, exitCell.gz);
+  const farFromExit = (c: { gx: number; gz: number }) => exitDist[c.gz * MAZE_SIZE + c.gx] >= MIN_TAPE_EXIT_STEPS;
+
   // One VHS tape per quadrant, at least 5 steps from spawn, preferring open halls, spaced apart
   const usedKeys = new Set<string>([key(spawnCell.gx, spawnCell.gz), key(exitCell.gx, exitCell.gz)]);
   const pickups: PickupSpawn[] = [];
@@ -311,16 +359,18 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
         quadrantOf(c.gx, c.gz) === q &&
         c.dist >= 5 &&
         !usedKeys.has(key(c.gx, c.gz)) &&
-        Math.max(Math.abs(c.gx - exitCell.gx), Math.abs(c.gz - exitCell.gz)) >= 3 &&
+        farFromExit(c) &&
         tapeCells.every((t) => Math.abs(t.gx - c.gx) + Math.abs(t.gz - c.gz) >= 5),
     );
     const roomPool = pool.filter((c) => inRoom(c.gx, c.gz));
     let choice = roomPool.length > 0 && rng() < 0.6 ? pick(roomPool) : pool.length > 0 ? pick(pool) : null;
     if (!choice) {
-      // Degenerate quadrant: fall back to the farthest unused cell anywhere
-      choice = walkableCells
-        .filter((c) => !usedKeys.has(key(c.gx, c.gz)))
-        .reduce((a, b) => (b.dist > a.dist ? b : a));
+      // Degenerate quadrant: the farthest unused cell far enough from the exit, in this quadrant if possible
+      const unused = walkableCells.filter((c) => !usedKeys.has(key(c.gx, c.gz)));
+      const here = unused.filter((c) => quadrantOf(c.gx, c.gz) === q && farFromExit(c));
+      const anywhere = unused.filter(farFromExit);
+      const from = here.length > 0 ? here : anywhere.length > 0 ? anywhere : unused;
+      choice = from.reduce((a, b) => (b.dist > a.dist ? b : a));
     }
     usedKeys.add(key(choice.gx, choice.gz));
     tapeCells.push(choice);
@@ -457,6 +507,95 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     }
   }
 
+  // Wall faces already decorated (graffiti), so landmarks and arrows do not cover them.
+  const faceKey = (gx: number, gz: number, sx: number, sz: number) => `${gx},${gz}:${sx},${sz}`;
+  const usedFaces = new Set<string>();
+  for (const g of graffiti) {
+    const c = worldToGrid(g.x, g.z);
+    usedFaces.add(faceKey(c.gx, c.gz, Math.round(-Math.sin(g.rotY)), Math.round(-Math.cos(g.rotY))));
+  }
+  const openSides = (gx: number, gz: number) => SIDES.filter(([sx, sz]) => !isWallCell(grid, gx + sx, gz + sz)).length;
+
+  // Landmarks: one distinctive prop per quadrant, in a hall when the quadrant has one, standing against a wall
+  // where it never blocks a passage. Generated after everything else, so no other element moves.
+  const landmarks: LandmarkSpec[] = [];
+  const landmarkKinds = shuffle(LANDMARK_KINDS);
+  for (let q = 0; q < 4; q++) {
+    const spots: Array<{ gx: number; gz: number; sx: number; sz: number }> = [];
+    const consider = (gx: number, gz: number) => {
+      const k = key(gx, gz);
+      if (isWallCell(grid, gx, gz) || usedKeys.has(k) || doorKeys.has(k) || openSides(gx, gz) < 2) return;
+      if ((gx === exitCell.gx && gz === exitCell.gz) || quadrantOf(gx, gz) !== q) return;
+      for (const [sx, sz] of SIDES) {
+        if (isWallCell(grid, gx + sx, gz + sz) && !usedFaces.has(faceKey(gx, gz, sx, sz))) spots.push({ gx, gz, sx, sz });
+      }
+    };
+    const hall = rooms.find((r) => quadrantOf(r.cx, r.cz) === q);
+    if (hall) {
+      for (let gz = hall.cz - hall.hh; gz <= hall.cz + hall.hh; gz++) {
+        for (let gx = hall.cx - hall.hw; gx <= hall.cx + hall.hw; gx++) consider(gx, gz);
+      }
+    }
+    if (spots.length === 0) {
+      for (const c of walkableCells) if (quadrantOf(c.gx, c.gz) === q && c.dist >= 3) consider(c.gx, c.gz);
+    }
+    if (spots.length === 0) continue;
+    const s = pick(spots);
+    usedKeys.add(key(s.gx, s.gz));
+    usedFaces.add(faceKey(s.gx, s.gz, s.sx, s.sz));
+    const wp = gridToWorld(s.gx, s.gz);
+    const offset = CELL_SIZE / 2 - LANDMARK_DEPTH / 2 - 0.04;
+    landmarks.push({
+      kind: landmarkKinds[q],
+      gx: s.gx,
+      gz: s.gz,
+      x: wp.x + s.sx * offset,
+      z: wp.z + s.sz * offset,
+      rotY: Math.atan2(-s.sx, -s.sz),
+    });
+  }
+
+  // Arrow graffiti at junctions: on the wall of the corridor that leads toward the exit, pointing along it.
+  // Most are right; a few lie.
+  const signs: ArrowSignSpec[] = [];
+  const junctions = shuffle(
+    walkableCells.filter((c) => !inRoom(c.gx, c.gz) && openSides(c.gx, c.gz) >= 3 && exitDist[c.gz * MAZE_SIZE + c.gx] > 1),
+  );
+  for (const j of junctions) {
+    if (signs.length >= ARROW_SIGNS) break;
+    const jd = exitDist[j.gz * MAZE_SIZE + j.gx];
+    const toward = SIDES.find(
+      ([dx, dz]) => !isWallCell(grid, j.gx + dx, j.gz + dz) && exitDist[(j.gz + dz) * MAZE_SIZE + j.gx + dx] === jd - 1,
+    );
+    if (!toward) continue;
+    const [dx, dz] = toward;
+    const cx = j.gx + dx;
+    const cz = j.gz + dz;
+    // The corridor must carry on past the sign, so the arrow never points straight at a wall.
+    if (doorKeys.has(key(cx, cz)) || inRoom(cx, cz) || isWallCell(grid, cx + dx, cz + dz)) continue;
+    if (signs.some((s) => Math.max(Math.abs(s.gx - cx), Math.abs(s.gz - cz)) < 3)) continue;
+    const across: Array<readonly [number, number]> = dx !== 0 ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+    const side = across.find(([sx, sz]) => isWallCell(grid, cx + sx, cz + sz) && !usedFaces.has(faceKey(cx, cz, sx, sz)));
+    if (!side) continue;
+    const [sx, sz] = side;
+    usedFaces.add(faceKey(cx, cz, sx, sz));
+    const rotY = Math.atan2(-sx, -sz);
+    // The texture arrow points along the plane's local +X, which is (cos rotY, -sin rotY) in the world.
+    const along = Math.round(Math.cos(rotY) * dx - Math.sin(rotY) * dz) >= 0 ? 1 : -1;
+    const correct = rng() >= ARROW_WRONG_CHANCE;
+    const wp = gridToWorld(cx, cz);
+    signs.push({
+      gx: cx,
+      gz: cz,
+      x: wp.x + sx * (CELL_SIZE * 0.5 - 0.02),
+      y: 1.45,
+      z: wp.z + sz * (CELL_SIZE * 0.5 - 0.02),
+      rotY,
+      flip: (correct ? along : -along) as 1 | -1,
+      correct,
+    });
+  }
+
   return {
     seed,
     grid,
@@ -478,6 +617,8 @@ export function generateBackroomsLevel(seed = 202611): BackroomsLevelData {
     graffiti,
     doors,
     desks,
+    landmarks,
+    signs,
   };
 }
 
@@ -655,6 +796,100 @@ export function hasLineOfSight(
     if (isWallCell(grid, gx, gz)) return false;
   }
   return true;
+}
+
+/**
+ * Cheapest 4-connected path over open cells (Dijkstra). Each step costs 1 plus `extraCost` of the cell entered:
+ * a closed door costs the time it takes to batter it down, a cell another hunter is already using costs a
+ * little so a second hunter takes another loop, and Infinity blocks the cell. Returns the cell indices from
+ * the first step to the goal (empty when already there), or null when the goal cannot be reached.
+ */
+export function findWeightedPath(
+  grid: Uint8Array,
+  startGx: number,
+  startGz: number,
+  goalGx: number,
+  goalGz: number,
+  extraCost: Float32Array | null = null,
+): number[] | null {
+  const n = MAZE_SIZE * MAZE_SIZE;
+  const inside = (gx: number, gz: number) => gx >= 0 && gz >= 0 && gx < MAZE_SIZE && gz < MAZE_SIZE;
+  if (!inside(startGx, startGz) || !inside(goalGx, goalGz)) return null;
+  const start = startGz * MAZE_SIZE + startGx;
+  const goal = goalGz * MAZE_SIZE + goalGx;
+  if (start === goal) return [];
+  if (grid[goal] !== 0 || (extraCost && extraCost[goal] === Infinity)) return null;
+
+  const cost = new Float64Array(n).fill(Infinity);
+  const prev = new Int32Array(n).fill(-1);
+  const done = new Uint8Array(n);
+  // Binary min-heap of [cost, cell] pairs, stored flat.
+  const heapCost: number[] = [];
+  const heapCell: number[] = [];
+  const push = (c: number, cell: number) => {
+    let i = heapCost.length;
+    heapCost.push(c);
+    heapCell.push(cell);
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heapCost[p] <= heapCost[i]) break;
+      [heapCost[p], heapCost[i]] = [heapCost[i], heapCost[p]];
+      [heapCell[p], heapCell[i]] = [heapCell[i], heapCell[p]];
+      i = p;
+    }
+  };
+  const pop = (): number => {
+    const top = heapCell[0];
+    const lastCost = heapCost.pop()!;
+    const lastCell = heapCell.pop()!;
+    if (heapCost.length > 0) {
+      heapCost[0] = lastCost;
+      heapCell[0] = lastCell;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heapCost.length && heapCost[l] < heapCost[m]) m = l;
+        if (r < heapCost.length && heapCost[r] < heapCost[m]) m = r;
+        if (m === i) break;
+        [heapCost[m], heapCost[i]] = [heapCost[i], heapCost[m]];
+        [heapCell[m], heapCell[i]] = [heapCell[i], heapCell[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+
+  cost[start] = 0;
+  push(0, start);
+  while (heapCost.length > 0) {
+    const cur = pop();
+    if (done[cur]) continue;
+    done[cur] = 1;
+    if (cur === goal) break;
+    const cx = cur % MAZE_SIZE;
+    const cz = (cur - cx) / MAZE_SIZE;
+    for (const [dx, dz] of SIDES) {
+      const nx = cx + dx;
+      const nz = cz + dz;
+      if (!inside(nx, nz)) continue;
+      const next = nz * MAZE_SIZE + nx;
+      if (grid[next] !== 0 || done[next]) continue;
+      const step = 1 + (extraCost ? extraCost[next] : 0);
+      if (step === Infinity) continue;
+      const c = cost[cur] + step;
+      if (c < cost[next]) {
+        cost[next] = c;
+        prev[next] = cur;
+        push(c, next);
+      }
+    }
+  }
+  if (cost[goal] === Infinity) return null;
+  const path: number[] = [];
+  for (let c = goal; c !== start; c = prev[c]) path.push(c);
+  return path.reverse();
 }
 
 /** Next cell-centre waypoint on a BFS path from `from` to `target`, or null when `target` is unreachable. */

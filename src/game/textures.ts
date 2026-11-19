@@ -25,6 +25,10 @@ export interface BackroomsMaterialSet {
   bruteSkinTex: THREE.CanvasTexture;
   bruteNormalTex: THREE.DataTexture;
   smilerHaloTex: THREE.CanvasTexture;
+  /** Spray-painted arrow pointing along local +X (signs mirror it to point the other way). */
+  arrowSign: THREE.MeshStandardMaterial;
+  /** Pink neon "OPEN" sign, one of the four landmarks. */
+  neonSignTex: THREE.CanvasTexture;
   dispose: () => void;
 }
 
@@ -521,6 +525,89 @@ function buildGraffitiMaterials(anisotropy: number): THREE.MeshStandardMaterial[
   });
 }
 
+/** Hand-sprayed arrow on a transparent background. No lettering, so a mirrored copy still reads correctly. */
+function buildArrowSignMaterial(anisotropy: number): THREE.MeshStandardMaterial {
+  const [canvas, ctx] = makeCanvas(512, 256);
+  const rng = mulberry32(8675309);
+  ctx.clearRect(0, 0, 512, 256);
+  const paint = '#6a1712';
+  ctx.strokeStyle = paint;
+  ctx.fillStyle = paint;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Shaft, a little uneven, as if sprayed in one quick pass
+  ctx.lineWidth = 30;
+  ctx.beginPath();
+  ctx.moveTo(52, 138);
+  ctx.quadraticCurveTo(200, 122, 350, 130);
+  ctx.stroke();
+  // Head
+  ctx.beginPath();
+  ctx.moveTo(326, 58);
+  ctx.quadraticCurveTo(400, 100, 466, 128);
+  ctx.quadraticCurveTo(400, 158, 326, 202);
+  ctx.quadraticCurveTo(346, 130, 326, 58);
+  ctx.fill();
+  // Drips running down from the shaft and the head
+  for (let i = 0; i < 7; i++) {
+    const x = 70 + rng() * 360;
+    const len = 18 + rng() * 60;
+    ctx.lineWidth = 3 + rng() * 4;
+    ctx.beginPath();
+    ctx.moveTo(x, 140);
+    ctx.lineTo(x + (rng() - 0.5) * 3, 140 + len);
+    ctx.stroke();
+  }
+  // Overspray speckle around the strokes
+  for (let i = 0; i < 420; i++) {
+    const x = 40 + rng() * 440;
+    const y = 50 + rng() * 160;
+    ctx.globalAlpha = 0.25 + rng() * 0.4;
+    ctx.beginPath();
+    ctx.arc(x, y, 0.8 + rng() * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = anisotropy;
+  tex.needsUpdate = true;
+  return new THREE.MeshStandardMaterial({
+    map: tex,
+    transparent: true,
+    roughness: 0.85,
+    metalness: 0,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+}
+
+/** Pink neon tubes spelling OPEN, with a soft glow, on a transparent background. */
+function buildNeonSignTexture(): THREE.CanvasTexture {
+  const [canvas, ctx] = makeCanvas(512, 192);
+  ctx.clearRect(0, 0, 512, 192);
+  ctx.font = 'bold 118px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = '#ff3d9a';
+  for (const [blur, width, color] of [
+    [34, 14, 'rgba(255, 61, 154, 0.55)'],
+    [14, 8, '#ff5cae'],
+    [4, 3, '#ffe1f0'],
+  ] as const) {
+    ctx.shadowBlur = blur;
+    ctx.lineWidth = width;
+    ctx.strokeStyle = color;
+    ctx.strokeText('OPEN', 256, 100);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function buildSmilerFaceMaterial(): THREE.MeshBasicMaterial {
   const [canvas, ctx] = makeCanvas(256, 256);
   ctx.clearRect(0, 0, 256, 256);
@@ -900,6 +987,8 @@ export function createBackroomsMaterialSet(
   const howlerTex = buildHowlerSkinTextures(anisotropy);
   const bruteTex = buildBruteSkinTextures(anisotropy);
   const smilerHaloTex = buildSmilerHaloTexture();
+  const arrowSign = buildArrowSignMaterial(anisotropy);
+  const neonSignTex = buildNeonSignTexture();
 
   const allMaterials: THREE.Material[] = [
     wallpaper,
@@ -915,6 +1004,7 @@ export function createBackroomsMaterialSet(
     exitDoor,
     exitFrame,
     smilerFace,
+    arrowSign,
     ...graffitiMaterials,
   ];
 
@@ -943,6 +1033,7 @@ export function createBackroomsMaterialSet(
     bruteTex.map,
     bruteTex.normalMap,
     smilerHaloTex,
+    neonSignTex,
   ];
 
   return {
@@ -970,6 +1061,8 @@ export function createBackroomsMaterialSet(
     bruteSkinTex: bruteTex.map,
     bruteNormalTex: bruteTex.normalMap,
     smilerHaloTex,
+    arrowSign,
+    neonSignTex,
     dispose: () => {
       allMaterials.forEach((m) => {
         if ('map' in m && m.map instanceof THREE.Texture) m.map.dispose();

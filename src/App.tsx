@@ -3,6 +3,7 @@ import { GameHud, RunSummary } from './components/GameHud';
 import { HowToPlay } from './components/HowToPlay';
 import { SettingsPanel } from './components/SettingsPanel';
 import { BackroomsEngine } from './game/BackroomsEngine';
+import { DEFAULT_BINDINGS, keyHintsFor } from './game/controls';
 import {
   GameSettings,
   RunMode,
@@ -19,6 +20,7 @@ import {
 import { DifficultyMode, HudState } from './game/types';
 
 const INITIAL_HUD: HudState = {
+  keyHints: keyHintsFor(DEFAULT_BINDINGS),
   phase: 'title',
   difficulty: 'standard',
   health: 100,
@@ -115,6 +117,11 @@ export default function App() {
     saveSettings(settings);
   }, [settings]);
 
+  // Interface scale: every rem-based size (text, spacing, panels) follows the root font size.
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${16 * settings.uiScale}px`;
+  }, [settings.uiScale]);
+
   useEffect(() => {
     if (engineRef.current) engineRef.current.uiOverlayOpen = panel !== 'none';
   }, [panel]);
@@ -191,6 +198,7 @@ export default function App() {
 
       {panel === 'howto' && (
         <HowToPlay
+          keyHints={hud.keyHints}
           onClose={() => {
             markHowToSeen();
             closePanel();

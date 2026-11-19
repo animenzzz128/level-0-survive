@@ -3,6 +3,20 @@ import type { EntityArchetype } from './types';
 
 export type WorldSound = 'door_open' | 'door_close' | 'door_bash' | 'door_break' | 'claw';
 
+/** Sounds farther than this (m) from the listener are not played at all (they would be inaudible anyway). */
+const CULL_DISTANCE = 30;
+
+/** Random variation of `amount` (fraction) around `value`, so repeated sounds are never identical. */
+function vary(value: number, amount: number): number {
+  return value * (1 + (Math.random() * 2 - 1) * amount);
+}
+
+interface Point3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
 function placePanner(panner: PannerNode, x: number, y: number, z: number): void {
   if (panner.positionX) {
     panner.positionX.value = x;
@@ -27,24 +41,29 @@ function createWorldPanner(ctx: AudioContext): PannerNode {
 class SpatialVoice implements EntityVoice {
   private readonly input: GainNode;
   private readonly occlusion: BiquadFilterNode;
+  private readonly occlusionGain: GainNode;
   private readonly panner: PannerNode;
   private readonly reverbSend: GainNode;
+  private readonly pos: Point3 = { x: 0, y: 0, z: 0 };
 
   constructor(
     private readonly ctx: AudioContext,
     dry: AudioNode,
     reverb: AudioNode,
     private readonly noise: AudioBuffer,
+    private readonly listener: Point3,
   ) {
     this.input = ctx.createGain();
     this.occlusion = ctx.createBiquadFilter();
     this.occlusion.type = 'lowpass';
     this.occlusion.frequency.value = 9000;
+    this.occlusionGain = ctx.createGain();
     this.panner = createWorldPanner(ctx);
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 0.5;
     this.input.connect(this.occlusion);
-    this.occlusion.connect(this.panner);
+    this.occlusion.connect(this.occlusionGain);
+    this.occlusionGain.connect(this.panner);
     this.panner.connect(dry);
     this.panner.connect(this.reverbSend);
     this.reverbSend.connect(reverb);
@@ -52,12 +71,25 @@ class SpatialVoice implements EntityVoice {
 
   setPosition(x: number, y: number, z: number): void {
     if (this.ctx.state === 'closed') return;
+    this.pos.x = x;
+    this.pos.y = y;
+    this.pos.z = z;
     placePanner(this.panner, x, y, z);
   }
 
+  /** Behind a wall: muffled and quieter (a wall takes level away, not just treble). */
   setOccluded(occluded: boolean): void {
     if (this.ctx.state === 'closed') return;
     this.occlusion.frequency.setTargetAtTime(occluded ? 650 : 9000, this.ctx.currentTime, 0.08);
+    this.occlusionGain.gain.setTargetAtTime(occluded ? 0.45 : 1, this.ctx.currentTime, 0.08);
+  }
+
+  /** Closed context or too far away to matter: skip the sound entirely. */
+  private silent(): boolean {
+    if (this.ctx.state === 'closed') return true;
+    const dx = this.pos.x - this.listener.x;
+    const dz = this.pos.z - this.listener.z;
+    return dx * dx + dz * dz > CULL_DISTANCE * CULL_DISTANCE;
   }
 
   private noiseBurst(
@@ -112,14 +144,14 @@ class SpatialVoice implements EntityVoice {
   }
 
   playStep(heavy: boolean): void {
-    if (this.ctx.state === 'closed') return;
+    if (this.silent()) return;
     const now = this.ctx.currentTime;
-    this.noiseBurst(now, heavy ? 0.16 : 0.1, 'lowpass', heavy ? 170 : 260, heavy ? 0.9 : 0.55);
-    if (heavy) this.tone(now, 0.18, 'sine', 70, 38, 0.6, 400);
+    this.noiseBurst(now, heavy ? 0.16 : 0.1, 'lowpass', vary(heavy ? 170 : 260, 0.12), vary(heavy ? 0.9 : 0.55, 0.15));
+    if (heavy) this.tone(now, 0.18, 'sine', vary(70, 0.08), 38, 0.6, 400);
   }
 
   playScreech(archetype: EntityArchetype): void {
-    if (this.ctx.state === 'closed') return;
+    if (this.silent()) return;
     const now = this.ctx.currentTime;
     if (archetype === 'howler') {
       // Ragged, warbling shriek
@@ -167,7 +199,7 @@ class SpatialVoice implements EntityVoice {
   }
 
   playIdle(archetype: EntityArchetype): void {
-    if (this.ctx.state === 'closed') return;
+    if (this.silent()) return;
     const now = this.ctx.currentTime;
     if (archetype === 'howler') {
       // Clicking echolocation chirps
@@ -184,7 +216,7 @@ class SpatialVoice implements EntityVoice {
   }
 
   playWindup(archetype: EntityArchetype): void {
-    if (this.ctx.state === 'closed') return;
+    if (this.silent()) return;
     const now = this.ctx.currentTime;
     // A short rising rasp: audible, directional warning that a blow lands in ~0.3 s.
     const base = archetype === 'brute' ? 90 : archetype === 'smiler' ? 520 : 200;
@@ -193,7 +225,7 @@ class SpatialVoice implements EntityVoice {
   }
 
   playDeath(): void {
-    if (this.ctx.state === 'closed') return;
+    if (this.silent()) return;
     const now = this.ctx.currentTime;
     this.tone(now, 0.7, 'sawtooth', 320, 40, 0.6, 1200);
     this.noiseBurst(now, 0.5, 'highpass', 3000, 0.45);
@@ -214,10 +246,18 @@ class SpatialVoice implements EntityVoice {
   }
 }
 
+const BUS_LEVELS = { ambient: 0.85, sfx: 0.75, world: 0.85, ui: 0.85 } as const;
+
 export class HorrorAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
-  private dryGain: GainNode | null = null;
+  // Mix buses (audio-design skill): each has its own level and ducks on its own; the master only limits.
+  private ambientBus: GainNode | null = null;
+  private sfxBus: GainNode | null = null;
+  private worldBus: GainNode | null = null;
+  private uiBus: GainNode | null = null;
+  private paused = false;
+  private readonly listenerPos: Point3 = { x: 0, y: 0, z: 0 };
   private reverbNode: ConvolverNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private humOsc1: OscillatorNode | null = null;
@@ -248,18 +288,30 @@ export class HorrorAudioEngine {
     if (!AudioCtx) return;
 
     this.ctx = new AudioCtx();
-    const compressor = this.ctx.createDynamicsCompressor();
-    compressor.threshold.value = -16;
-    compressor.knee.value = 18;
-    compressor.ratio.value = 6;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.2;
+    // The master only limits peaks. The old master compressor (-16 dB, 6:1) pumped the whole mix, so the
+    // ambience dipped after every gunshot.
+    const limiter = this.ctx.createDynamicsCompressor();
+    limiter.threshold.value = -3;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.12;
 
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = this.muted ? 0 : this.outputLevel();
 
-    this.dryGain = this.ctx.createGain();
-    this.dryGain.gain.value = 0.85;
+    const ctx = this.ctx;
+    const master = this.masterGain;
+    const makeBus = (level: number) => {
+      const bus = ctx.createGain();
+      bus.gain.value = level;
+      bus.connect(master);
+      return bus;
+    };
+    this.ambientBus = makeBus(BUS_LEVELS.ambient);
+    this.sfxBus = makeBus(BUS_LEVELS.sfx);
+    this.worldBus = makeBus(BUS_LEVELS.world);
+    this.uiBus = makeBus(BUS_LEVELS.ui);
 
     this.reverbNode = this.ctx.createConvolver();
     this.reverbNode.buffer = this.buildCorridorImpulse(1.5, 2.8);
@@ -267,11 +319,11 @@ export class HorrorAudioEngine {
     const wetGain = this.ctx.createGain();
     wetGain.gain.value = 0.34;
 
-    this.dryGain.connect(compressor);
     this.reverbNode.connect(wetGain);
-    wetGain.connect(compressor);
-    compressor.connect(this.masterGain);
-    this.masterGain.connect(this.ctx.destination);
+    wetGain.connect(master);
+    master.connect(limiter);
+    limiter.connect(this.ctx.destination);
+    this.applyBusLevels();
 
     this.noiseBuffer = this.buildNoiseBuffer(2.0);
     this.startFluorescentHum();
@@ -289,8 +341,26 @@ export class HorrorAudioEngine {
     this.applyOutputLevel();
   }
 
+  /** Squared, so the slider feels even: linear gain makes the top half of the range sound almost the same. */
   private outputLevel(): number {
-    return 0.9 * this.volume;
+    return 0.9 * this.volume * this.volume;
+  }
+
+  /** Paused: the world and the player's own sounds go quiet (tape hiss too), a little hum stays; UI unchanged. */
+  public setPaused(paused: boolean): void {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    this.applyBusLevels();
+  }
+
+  private applyBusLevels(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const set = (bus: GainNode | null, level: number) => bus?.gain.setTargetAtTime(level, now, 0.08);
+    set(this.ambientBus, BUS_LEVELS.ambient * (this.paused ? 0.3 : 1));
+    set(this.sfxBus, this.paused ? 0 : BUS_LEVELS.sfx);
+    set(this.worldBus, this.paused ? 0 : BUS_LEVELS.world);
+    set(this.uiBus, BUS_LEVELS.ui);
   }
 
   private applyOutputLevel(): void {
@@ -304,7 +374,7 @@ export class HorrorAudioEngine {
    * by ear. Linear falloff: silent beyond ~22 m. Returns null until audio is unlocked.
    */
   public createTapeBeacon(x: number, y: number, z: number): { dispose: () => void } | null {
-    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.noiseBuffer) return null;
+    if (!this.ctx || this.ctx.state === 'closed' || !this.worldBus || !this.noiseBuffer) return null;
     const ctx = this.ctx;
     const panner = ctx.createPanner();
     panner.panningModel = 'HRTF';
@@ -313,7 +383,7 @@ export class HorrorAudioEngine {
     panner.maxDistance = 22;
     panner.rolloffFactor = 1;
     placePanner(panner, x, y, z);
-    panner.connect(this.dryGain);
+    panner.connect(this.worldBus);
 
     const out = ctx.createGain();
     out.gain.value = 0.55;
@@ -383,7 +453,7 @@ export class HorrorAudioEngine {
 
   /** Mechanical clunk and a burst of static: a recovered tape starts playing back. */
   public playTapeLog(): void {
-    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.noiseBuffer) return;
+    if (!this.ctx || this.ctx.state === 'closed' || !this.sfxBus || !this.noiseBuffer) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const thunk = ctx.createOscillator();
@@ -394,7 +464,7 @@ export class HorrorAudioEngine {
     thunkGain.gain.setValueAtTime(0.25, now);
     thunkGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     thunk.connect(thunkGain);
-    thunkGain.connect(this.dryGain);
+    thunkGain.connect(this.sfxBus);
     thunk.start(now);
     thunk.stop(now + 0.12);
     const hiss = ctx.createBufferSource();
@@ -408,7 +478,7 @@ export class HorrorAudioEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, now + 1.4);
     hiss.connect(band);
     band.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.sfxBus);
     hiss.start(now + 0.1, 0, 1.4);
   }
 
@@ -442,7 +512,7 @@ export class HorrorAudioEngine {
   }
 
   private startFluorescentHum(): void {
-    if (!this.ctx || !this.dryGain || this.humOsc1) return;
+    if (!this.ctx || !this.ambientBus || this.humOsc1) return;
     const now = this.ctx.currentTime;
 
     this.humGain = this.ctx.createGain();
@@ -468,7 +538,7 @@ export class HorrorAudioEngine {
     this.humOsc2.connect(g2);
     g2.connect(filter);
     filter.connect(this.humGain);
-    this.humGain.connect(this.dryGain);
+    this.humGain.connect(this.ambientBus);
 
     this.humOsc1.start();
     this.humOsc2.start();
@@ -486,7 +556,7 @@ export class HorrorAudioEngine {
     this.droneWobbleOsc.connect(droneWobbleGain);
     droneWobbleGain.connect(this.droneOsc.frequency);
     this.droneOsc.connect(this.droneGain);
-    this.droneGain.connect(this.dryGain);
+    this.droneGain.connect(this.ambientBus);
     this.droneOsc.start();
     this.droneWobbleOsc.start();
   }
@@ -498,6 +568,9 @@ export class HorrorAudioEngine {
 
   /** Keep the Web Audio listener on the camera so entity voices pan and attenuate correctly. */
   public updateListener(x: number, y: number, z: number, fx: number, fy: number, fz: number): void {
+    this.listenerPos.x = x;
+    this.listenerPos.y = y;
+    this.listenerPos.z = z;
     if (!this.ctx) return;
     const l = this.ctx.listener;
     if (l.positionX) {
@@ -518,18 +591,30 @@ export class HorrorAudioEngine {
 
   /** A positional voice for one entity, or null until audio has been unlocked by a user gesture. */
   public createVoice(): EntityVoice | null {
-    if (!this.ctx || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return null;
-    return new SpatialVoice(this.ctx, this.dryGain, this.reverbNode, this.noiseBuffer);
+    if (!this.ctx || !this.worldBus || !this.reverbNode || !this.noiseBuffer) return null;
+    return new SpatialVoice(this.ctx, this.worldBus, this.reverbNode, this.noiseBuffer, this.listenerPos);
   }
 
-  /** One-shot positional sound for level objects (doors). */
-  public playAt(kind: WorldSound, x: number, y: number, z: number): void {
-    if (!this.ctx || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return;
+  /** One-shot positional sound for level objects (doors). `occluded`: a wall is between it and the listener. */
+  public playAt(kind: WorldSound, x: number, y: number, z: number, occluded = false): void {
+    if (!this.ctx || !this.worldBus || !this.reverbNode || !this.noiseBuffer) return;
+    if (Math.hypot(x - this.listenerPos.x, z - this.listenerPos.z) > CULL_DISTANCE) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const panner = createWorldPanner(ctx);
     placePanner(panner, x, y, z);
-    panner.connect(this.dryGain);
+    if (occluded) {
+      const muffle = ctx.createBiquadFilter();
+      muffle.type = 'lowpass';
+      muffle.frequency.value = 650;
+      const quieter = ctx.createGain();
+      quieter.gain.value = 0.45;
+      panner.connect(muffle);
+      muffle.connect(quieter);
+      quieter.connect(this.worldBus);
+    } else {
+      panner.connect(this.worldBus);
+    }
     panner.connect(this.reverbNode);
     let lastEnd = now;
 
@@ -581,8 +666,8 @@ export class HorrorAudioEngine {
       noise(now + 0.03, 0.12, 'highpass', 4000, 0.6);
       tone(now, 0.18, 'sine', 140, 55, 0.9);
     } else if (kind === 'door_bash') {
-      tone(now, 0.22, 'sine', 80, 40, 1.0);
-      noise(now, 0.2, 'lowpass', 400, 1.0);
+      tone(now, 0.22, 'sine', vary(80, 0.12), 40, vary(1.0, 0.1));
+      noise(now, 0.2, 'lowpass', vary(400, 0.18), vary(1.0, 0.1));
     } else {
       noise(now, 0.7, 'lowpass', 900, 1.2);
       noise(now, 0.4, 'highpass', 2500, 0.6);
@@ -635,7 +720,7 @@ export class HorrorAudioEngine {
   }
 
   private playBreath(level: number): void {
-    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.noiseBuffer) return;
+    if (!this.ctx || this.ctx.state === 'closed' || !this.sfxBus || !this.noiseBuffer) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
     // Ragged in-breath then out-breath: band-passed noise with slow envelopes.
@@ -656,14 +741,14 @@ export class HorrorAudioEngine {
       g.gain.exponentialRampToValueAtTime(0.0001, now + offset + length);
       src.connect(band);
       band.connect(g);
-      g.connect(this.dryGain);
+      g.connect(this.sfxBus);
       src.start(now + offset, Math.random() * 1.2, length + 0.05);
     }
   }
 
   /** Low falling sweep and a swell of static when the run ends in death. */
   public playDeathSting(): void {
-    if (!this.ctx || this.ctx.state === 'closed' || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return;
+    if (!this.ctx || this.ctx.state === 'closed' || !this.sfxBus || !this.reverbNode || !this.noiseBuffer) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -680,7 +765,7 @@ export class HorrorAudioEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, now + 2.0);
     osc.connect(lp);
     lp.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.sfxBus);
     g.connect(this.reverbNode);
     osc.start(now);
     osc.stop(now + 2.05);
@@ -695,12 +780,12 @@ export class HorrorAudioEngine {
     hg.gain.exponentialRampToValueAtTime(0.0001, now + 1.9);
     hiss.connect(hp);
     hp.connect(hg);
-    hg.connect(this.dryGain);
+    hg.connect(this.sfxBus);
     hiss.start(now, 0, 1.95);
   }
 
   private playHeartbeat(volume: number): void {
-    if (!this.ctx || !this.dryGain) return;
+    if (!this.ctx || !this.sfxBus) return;
     const now = this.ctx.currentTime;
     const beat = (offset: number, peak: number) => {
       const osc = this.ctx!.createOscillator();
@@ -712,7 +797,7 @@ export class HorrorAudioEngine {
       gain.gain.linearRampToValueAtTime(peak, now + offset + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.18);
       osc.connect(gain);
-      gain.connect(this.dryGain!);
+      gain.connect(this.sfxBus!);
       osc.start(now + offset);
       osc.stop(now + offset + 0.2);
     };
@@ -721,19 +806,19 @@ export class HorrorAudioEngine {
   }
 
   public playGunshot(): void {
-    if (!this.ctx || !this.dryGain || !this.reverbNode || !this.noiseBuffer) return;
+    if (!this.ctx || !this.sfxBus || !this.reverbNode || !this.noiseBuffer) return;
     const now = this.ctx.currentTime;
 
     // Punchy low-end transient
     const sub = this.ctx.createOscillator();
     const subGain = this.ctx.createGain();
     sub.type = 'triangle';
-    sub.frequency.setValueAtTime(165, now);
+    sub.frequency.setValueAtTime(vary(165, 0.05), now);
     sub.frequency.exponentialRampToValueAtTime(42, now + 0.11);
-    subGain.gain.setValueAtTime(0.55, now);
+    subGain.gain.setValueAtTime(vary(0.55, 0.06), now);
     subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
     sub.connect(subGain);
-    subGain.connect(this.dryGain);
+    subGain.connect(this.sfxBus);
     sub.start(now);
     sub.stop(now + 0.15);
 
@@ -743,24 +828,24 @@ export class HorrorAudioEngine {
 
     const band = this.ctx.createBiquadFilter();
     band.type = 'bandpass';
-    band.frequency.setValueAtTime(1650, now);
+    band.frequency.setValueAtTime(vary(1650, 0.08), now);
     band.frequency.exponentialRampToValueAtTime(520, now + 0.18);
     band.Q.value = 0.7;
 
     const nGain = this.ctx.createGain();
-    nGain.gain.setValueAtTime(0.68, now);
+    nGain.gain.setValueAtTime(vary(0.68, 0.06), now);
     nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
 
     src.connect(band);
     band.connect(nGain);
-    nGain.connect(this.dryGain);
+    nGain.connect(this.sfxBus);
     nGain.connect(this.reverbNode);
     src.start(now);
     src.stop(now + 0.24);
   }
 
   public playEmptyClick(): void {
-    if (!this.ctx || !this.dryGain) return;
+    if (!this.ctx || !this.sfxBus) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -770,24 +855,25 @@ export class HorrorAudioEngine {
     g.gain.setValueAtTime(0.14, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
     osc.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.sfxBus);
     osc.start(now);
     osc.stop(now + 0.05);
   }
 
   public playReload(): void {
-    if (!this.ctx || !this.dryGain) return;
+    if (!this.ctx || !this.sfxBus) return;
     const now = this.ctx.currentTime;
     const clack = (offset: number, freq: number) => {
       const osc = this.ctx!.createOscillator();
       const g = this.ctx!.createGain();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + offset);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.45, now + offset + 0.06);
+      const f = vary(freq, 0.04);
+      osc.frequency.setValueAtTime(f, now + offset);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.45, now + offset + 0.06);
       g.gain.setValueAtTime(0.18, now + offset);
       g.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.07);
       osc.connect(g);
-      g.connect(this.dryGain!);
+      g.connect(this.sfxBus!);
       osc.start(now + offset);
       osc.stop(now + offset + 0.08);
     };
@@ -797,7 +883,7 @@ export class HorrorAudioEngine {
   }
 
   public playFlashlightClick(): void {
-    if (!this.ctx || !this.dryGain) return;
+    if (!this.ctx || !this.sfxBus) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -806,36 +892,36 @@ export class HorrorAudioEngine {
     g.gain.setValueAtTime(0.09, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
     osc.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.sfxBus);
     osc.start(now);
     osc.stop(now + 0.03);
   }
 
   public playFootstep(sprinting: boolean): void {
-    if (!this.ctx || !this.dryGain || !this.noiseBuffer) return;
+    if (!this.ctx || !this.sfxBus || !this.noiseBuffer) return;
     const now = this.ctx.currentTime;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = sprinting ? 380 : 280;
+    filter.frequency.value = vary(sprinting ? 380 : 280, 0.15);
 
     const g = this.ctx.createGain();
-    const vol = sprinting ? 0.17 : 0.1;
+    const vol = vary(sprinting ? 0.17 : 0.1, 0.15);
     g.gain.setValueAtTime(vol, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
 
     src.connect(filter);
     filter.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.sfxBus);
     src.start(now, Math.random() * 0.5, 0.1);
   }
 
   /** 'immune' is a dull, wrong-sounding thunk for bullets passing through a Smiler. */
   /** 'head' is a low, meaty thud; 'immune' a dull, wrong-sounding one for bullets passing through a Smiler. */
   public playHitmarker(kind: 'hit' | 'head' | 'kill' | 'immune'): void {
-    if (!this.ctx || !this.dryGain) return;
+    if (!this.ctx || !this.uiBus) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -843,18 +929,19 @@ export class HorrorAudioEngine {
     const [from, to] =
       kind === 'kill' ? [1480, 720] : kind === 'hit' ? [1080, 640] : kind === 'head' ? [520, 160] : [260, 120];
     const length = kind === 'head' ? 0.11 : 0.07;
-    osc.frequency.setValueAtTime(from, now);
-    osc.frequency.exponentialRampToValueAtTime(to, now + length * 0.85);
+    const pitch = vary(1, 0.04);
+    osc.frequency.setValueAtTime(from * pitch, now);
+    osc.frequency.exponentialRampToValueAtTime(to * pitch, now + length * 0.85);
     g.gain.setValueAtTime(kind === 'head' ? 0.26 : 0.18, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + length);
     osc.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.uiBus);
     osc.start(now);
     osc.stop(now + length + 0.01);
   }
 
   public playPlayerHurt(): void {
-    if (!this.ctx || !this.dryGain || !this.noiseBuffer) return;
+    if (!this.ctx || !this.sfxBus || !this.noiseBuffer) return;
     const now = this.ctx.currentTime;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
@@ -869,12 +956,12 @@ export class HorrorAudioEngine {
 
     src.connect(filter);
     filter.connect(g);
-    g.connect(this.dryGain);
+    g.connect(this.sfxBus);
     src.start(now, 0, 0.28);
   }
 
   public playPickup(kind: 'tape' | 'ammo' | 'almond_water' | 'battery'): void {
-    if (!this.ctx || !this.dryGain) return;
+    if (!this.ctx || !this.uiBus) return;
     const now = this.ctx.currentTime;
     const notes =
       kind === 'tape'
@@ -892,14 +979,14 @@ export class HorrorAudioEngine {
       g.gain.setValueAtTime(0.16, now + idx * 0.07);
       g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.22);
       osc.connect(g);
-      g.connect(this.dryGain!);
+      g.connect(this.uiBus!);
       osc.start(now + idx * 0.07);
       osc.stop(now + idx * 0.07 + 0.24);
     });
   }
 
   public playExitUnlocked(): void {
-    if (!this.ctx || !this.reverbNode || !this.dryGain) return;
+    if (!this.ctx || !this.reverbNode || !this.uiBus) return;
     const now = this.ctx.currentTime;
     [392, 523.25, 659.25, 783.99].forEach((freq, idx) => {
       const osc = this.ctx!.createOscillator();
@@ -913,7 +1000,7 @@ export class HorrorAudioEngine {
       g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.11 + 0.45);
       osc.connect(lp);
       lp.connect(g);
-      g.connect(this.dryGain!);
+      g.connect(this.uiBus!);
       g.connect(this.reverbNode!);
       osc.start(now + idx * 0.11);
       osc.stop(now + idx * 0.11 + 0.48);

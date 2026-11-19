@@ -91,7 +91,7 @@ check('v1 records: best times carry over, dailies (different layouts now) do not
   assert.equal(getRecord('standard', 'daily', today).bestTime, null);
   recordRun('standard', 'random', false, 50);
   const saved = get('level0.records.v2');
-  assert.equal(saved.version, 2);
+  assert.equal(saved.version, 3);
   assert.deepEqual(Object.keys(saved.data), ['all:standard']);
   assert.equal(saved.data['all:standard'].deaths, 4);
   assert.ok(memory.has('level0.records.v1'), 'the old key is left for older builds');
@@ -100,7 +100,7 @@ check('v1 records: best times carry over, dailies (different layouts now) do not
 check('daily records older than 30 days are pruned on save', () => {
   const today = todayLabel();
   put('level0.records.v2', {
-    version: 2,
+    version: 3,
     data: {
       'daily:2020-01-01:standard': { bestTime: 80, escapes: 1, deaths: 0 },
       [`daily:${today}:standard`]: { bestTime: 120, escapes: 1, deaths: 0 },
@@ -110,6 +110,24 @@ check('daily records older than 30 days are pruned on save', () => {
   assert.ok(isNewBest);
   const keys = Object.keys(get('level0.records.v2').data).sort();
   assert.deepEqual(keys, ['all:standard', `daily:${today}:standard`]);
+});
+
+check('v2 records: dailies were set on layouts the v3 generator changed, best times stay', () => {
+  const today = todayLabel();
+  put('level0.records.v2', {
+    version: 2,
+    data: {
+      'all:nightmare': { bestTime: 300, escapes: 1, deaths: 9 },
+      [`daily:${today}:nightmare`]: { bestTime: 310, escapes: 1, deaths: 0 },
+    },
+  });
+  assert.equal(getRecord('nightmare', 'random').bestTime, 300);
+  assert.equal(getRecord('nightmare', 'daily', today).bestTime, null);
+  recordRun('nightmare', 'daily', false, 12, today);
+  const saved = get('level0.records.v2');
+  assert.equal(saved.version, 3);
+  assert.equal(saved.data['all:nightmare'].bestTime, 300);
+  assert.deepEqual(saved.data[`daily:${today}:nightmare`], { bestTime: null, escapes: 0, deaths: 1 });
 });
 
 check('records from a newer build are not overwritten', () => {
