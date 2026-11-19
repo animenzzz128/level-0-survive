@@ -99,6 +99,14 @@ export class BackroomsEngine {
   private particles: ImpactParticle[] = [];
   private wallRayMeshes: THREE.Object3D[] = [];
 
+  // Materials owned by this.materials outlive every level and must never be disposed on rebuild.
+  private sharedMaterials = new Set<THREE.Material>();
+  // GPU resources of the previous level, released only after the new level has rendered once so the
+  // new level's materials can reuse the cached shader programs instead of recompiling them.
+  private pendingDisposal: Array<{ dispose: () => void }> = [];
+  private readonly particleGeo = new THREE.BoxGeometry(0.045, 0.045, 0.045);
+  private readonly particleMats = new Map<number, THREE.MeshBasicMaterial>();
+
   private lightPanelInstanced: THREE.InstancedMesh | null = null;
   private fixtureColorTemp = new THREE.Color();
   private pooledLights: THREE.PointLight[] = [];
@@ -159,6 +167,9 @@ export class BackroomsEngine {
 
   private keys: Record<string, boolean> = {};
   private pointerLocked = false;
+  // Set once pointer lock has succeeded; where it never does (e.g. sandboxed iframe) clicks keep drag-look + fire.
+  private pointerLockEverWorked = false;
+  private pausedAtMs = 0;
   private isDraggingLook = false;
   private lastDragX = 0;
   private lastDragY = 0;
@@ -230,6 +241,11 @@ export class BackroomsEngine {
     pmremGenerator.dispose();
 
     this.materials = createBackroomsMaterialSet(this.renderer);
+    for (const value of Object.values(this.materials)) {
+      for (const m of Array.isArray(value) ? value : [value]) {
+        if (m instanceof THREE.Material) this.sharedMaterials.add(m);
+      }
+    }
 
     // Deeper atmospheric fill for tense Backrooms contrast
     const hemi = new THREE.HemisphereLight(0xb8a564, 0x1a160c, 0.26);
@@ -326,6 +342,22 @@ export class BackroomsEngine {
   }
 
   private clearGroups(): void {
+    // Every level builds its own geometries, materials and instance buffers. Removing them from the scene
+    // is not enough to free them on the GPU, so queue them for disposal (textures all belong to this.materials).
+    const queued = new Set<{ dispose: () => void }>();
+    for (const grp of [this.levelGroup, this.entityGroup, this.pickupGroup]) {
+      grp.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        if (obj instanceof THREE.InstancedMesh) queued.add(obj);
+        queued.add(obj.geometry);
+        for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+          if (!this.sharedMaterials.has(m)) queued.add(m);
+        }
+      });
+    }
+    this.pendingDisposal.push(...queued);
+
+    // fxGroup only holds impact particles, which share particleGeo/particleMats.
     const clearGroup = (grp: THREE.Group) => {
       while (grp.children.length > 0) {
         const child = grp.children[0];
@@ -866,6 +898,7 @@ export class BackroomsEngine {
   public pauseGame(): void {
     if (this.phase !== 'playing') return;
     this.phase = 'paused';
+    this.pausedAtMs = performance.now();
     this.isAiming = false;
     if (document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock();
@@ -892,7 +925,9 @@ export class BackroomsEngine {
 
   public requestLock(): void {
     try {
-      this.renderer.domElement.requestPointerLock?.();
+      // Modern browsers return a Promise that rejects when the lock is refused; swallow it like the sync error.
+      const pending: Promise<void> | undefined = this.renderer.domElement.requestPointerLock?.();
+      pending?.catch(() => {});
     } catch {
       /* Fallback drag/keyboard look remains active */
     }
@@ -907,6 +942,7 @@ export class BackroomsEngine {
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.onWindowBlur);
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
 
     const dom = this.renderer.domElement;
@@ -930,8 +966,23 @@ export class BackroomsEngine {
   };
 
   private onPointerLockChange = (): void => {
+    const wasLocked = this.pointerLocked;
     this.pointerLocked = document.pointerLockElement === this.renderer.domElement;
+    if (this.pointerLocked) {
+      this.pointerLockEverWorked = true;
+    } else if (wasLocked && this.phase === 'playing') {
+      // Losing the cursor (Esc, Alt-Tab, clicking outside) must not leave the player defenceless mid-fight.
+      this.pauseGame();
+    }
     this.emitHud();
+  };
+
+  private onWindowBlur = (): void => {
+    // keyup never arrives for keys held while the window loses focus, which left the player walking on their own.
+    this.keys = {};
+    this.isAiming = false;
+    this.isDraggingLook = false;
+    this.pauseGame();
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -939,7 +990,9 @@ export class BackroomsEngine {
     if (e.code === 'Escape') {
       if (this.phase === 'playing') {
         this.pauseGame();
-      } else if (this.phase === 'paused') {
+      } else if (this.phase === 'paused' && performance.now() - this.pausedAtMs > 300) {
+        // Some browsers deliver the Esc keydown right after Esc already released the pointer lock (and paused);
+        // ignore that echo so one press does not pause and immediately resume.
         this.resumeGame();
       }
       return;
@@ -973,6 +1026,10 @@ export class BackroomsEngine {
         this.isDraggingLook = true;
         this.lastDragX = e.clientX;
         this.lastDragY = e.clientY;
+        // Once pointer lock has worked, a click on the unlocked canvas only re-grabs the cursor: firing here
+        // woke every entity within 26 m just because the player wanted to resume. Where lock never works
+        // (e.g. sandboxed iframe), keep the drag-look mode in which clicks still shoot.
+        if (this.pointerLockEverWorked) return;
       }
       this.fireWeapon();
     } else if (e.button === 2) {
@@ -1115,10 +1172,14 @@ export class BackroomsEngine {
   }
 
   private spawnImpactParticles(point: THREE.Vector3, colorHex: number, count: number): void {
-    const geo = new THREE.BoxGeometry(0.045, 0.045, 0.045);
-    const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+    // Shared geometry + one material per colour: creating them per shot leaked GPU buffers on every hit.
+    let mat = this.particleMats.get(colorHex);
+    if (!mat) {
+      mat = new THREE.MeshBasicMaterial({ color: colorHex });
+      this.particleMats.set(colorHex, mat);
+    }
     for (let i = 0; i < count; i++) {
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(this.particleGeo, mat);
       mesh.position.copy(point);
       this.fxGroup.add(mesh);
       this.particles.push({
@@ -1178,6 +1239,10 @@ export class BackroomsEngine {
 
     this.updateScene(delta, now * 0.001);
     this.renderer.render(this.scene, this.camera);
+    if (this.pendingDisposal.length > 0) {
+      for (const resource of this.pendingDisposal) resource.dispose();
+      this.pendingDisposal = [];
+    }
     this.scheduleNextTick();
   }
 
@@ -1713,6 +1778,7 @@ export class BackroomsEngine {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     window.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('mousemove', this.onMouseMove);
@@ -1725,6 +1791,8 @@ export class BackroomsEngine {
     }
 
     this.audio.dispose();
+    this.particleGeo.dispose();
+    this.particleMats.forEach((m) => m.dispose());
     this.materials?.dispose();
     this.renderer?.dispose();
     delete window.__BACKROOMS_DEBUG__;
