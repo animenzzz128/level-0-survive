@@ -1,0 +1,209 @@
+{
+  "file": "vm_pistol.glb",
+  "bytes": 843852,
+  "nodes": [
+    {
+      "name": "vm_root",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "vm_rig",
+      "type": "ARMATURE",
+      "parent": "vm_root",
+      "parent_bone": null
+    },
+    {
+      "name": "vm_arms",
+      "type": "MESH",
+      "parent": "vm_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "SOCKET_eject",
+      "type": "EMPTY",
+      "parent": "vm_rig",
+      "parent_bone": "slide"
+    },
+    {
+      "name": "vm_slide",
+      "type": "MESH",
+      "parent": "vm_rig",
+      "parent_bone": "slide"
+    },
+    {
+      "name": "vm_trigger",
+      "type": "MESH",
+      "parent": "vm_rig",
+      "parent_bone": "trigger"
+    },
+    {
+      "name": "vm_hammer",
+      "type": "MESH",
+      "parent": "vm_rig",
+      "parent_bone": "hammer"
+    },
+    {
+      "name": "vm_magazine",
+      "type": "MESH",
+      "parent": "vm_rig",
+      "parent_bone": "magazine"
+    },
+    {
+      "name": "SOCKET_light",
+      "type": "EMPTY",
+      "parent": "vm_rig",
+      "parent_bone": "gun_root"
+    },
+    {
+      "name": "SOCKET_muzzle",
+      "type": "EMPTY",
+      "parent": "vm_rig",
+      "parent_bone": "gun_root"
+    },
+    {
+      "name": "vm_frame",
+      "type": "MESH",
+      "parent": "vm_rig",
+      "parent_bone": "gun_root"
+    }
+  ],
+  "meshes": [
+    {
+      "name": "vm_arms",
+      "triangles": 5552,
+      "materials": [
+        "vm_arms"
+      ],
+      "skinned": true,
+      "shape_keys": []
+    },
+    {
+      "name": "vm_slide",
+      "triangles": 1418,
+      "materials": [
+        "vm_gun",
+        "tritium"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "vm_trigger",
+      "triangles": 160,
+      "materials": [
+        "vm_gun"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "vm_hammer",
+      "triangles": 228,
+      "materials": [
+        "vm_gun"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "vm_magazine",
+      "triangles": 352,
+      "materials": [
+        "vm_gun"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "vm_frame",
+      "triangles": 4408,
+      "materials": [
+        "vm_gun"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    }
+  ],
+  "armatures": [
+    {
+      "name": "vm_rig",
+      "bones": [
+        "gun_root",
+        "slide",
+        "trigger",
+        "hammer",
+        "magazine",
+        "upperarm_L",
+        "forearm_L",
+        "hand_L",
+        "upperarm_R",
+        "forearm_R",
+        "hand_R"
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "empty",
+      "frames": [
+        0.0,
+        4.0
+      ]
+    },
+    {
+      "name": "fire",
+      "frames": [
+        0.0,
+        6.0
+      ]
+    },
+    {
+      "name": "idle",
+      "frames": [
+        0.0,
+        60.0
+      ]
+    },
+    {
+      "name": "reload",
+      "frames": [
+        0.0,
+        38.0
+      ]
+    },
+    {
+      "name": "sprint",
+      "frames": [
+        0.0,
+        20.0
+      ]
+    }
+  ],
+  "top_level_bounds": {
+    "vm_root": {
+      "min": [
+        -0.4492,
+        -0.6696,
+        -0.2734
+      ],
+      "max": [
+        0.1251,
+        0.3,
+        0.0935
+      ],
+      "size": [
+        0.5743,
+        0.9696,
+        0.3668
+      ]
+    }
+  },
+  "triangles_total": 12118,
+  "materials": [
+    "tritium",
+    "vm_arms",
+    "vm_gun"
+  ]
+}
