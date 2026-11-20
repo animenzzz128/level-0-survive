@@ -55,6 +55,7 @@ const _jsQuat = new THREE.Quaternion();
 const BASE_EXPOSURE = 1.08;
 const MODEL_COUNT = Object.keys(MODEL_FILES).length;
 const HEMI_INTENSITY = 0.26;
+const ENV_INTENSITY = 0.22;
 /** How long "SIGNAL LOST" stays up before the results screen. */
 const SIGNAL_LOST_SECONDS = 0.6;
 /** The death scene can be skipped with any key or click after this long. */
@@ -548,7 +549,7 @@ export class BackroomsEngine {
 
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.22;
+    this.scene.environmentIntensity = ENV_INTENSITY;
     pmremGenerator.dispose();
 
     this.materials = createBackroomsMaterialSet(this.renderer);
@@ -1809,6 +1810,7 @@ export class BackroomsEngine {
     this.signalLost = false;
     this.renderer.toneMappingExposure = BASE_EXPOSURE;
     this.hemiLight.intensity = HEMI_INTENSITY;
+    this.scene.environmentIntensity = ENV_INTENSITY;
     if (this.glowInstanced) this.glowInstanced.visible = true;
     if (this.lightPanelInstanced) this.lightPanelInstanced.visible = true;
     this.audio.setJumpscare('none');
@@ -1906,6 +1908,7 @@ export class BackroomsEngine {
       const on = 1 - THREE.MathUtils.smoothstep(t, 0, 0.12);
       this.flashlight.intensity = this.flashlightOn ? 6.2 * on : 0;
       this.hemiLight.intensity = HEMI_INTENSITY * on;
+      this.scene.environmentIntensity = ENV_INTENSITY * on;
       this.updateLights(timeSec);
       for (const pl of this.pooledLights) pl.intensity *= on;
       if (this.glowInstanced) this.glowInstanced.visible = on > 0;
