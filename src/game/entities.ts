@@ -433,8 +433,12 @@ export class BackroomsEntity {
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(own) : own(mesh.material);
       mesh.userData.ownMaterials = true;
-      // Skinned bounds do not follow the animation; culling them makes limbs pop out of view.
-      mesh.frustumCulled = false;
+      // Skinned bounds are taken from one pose and do not follow the clips: give each body a fixed sphere big
+      // enough for lunges and reaching arms instead, so off-screen entities are still culled (and skip the
+      // shadow pass).
+      if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+        (mesh as THREE.SkinnedMesh).boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.2, 0), 2.1);
+      }
       const first = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
       const lit = !(first as THREE.MeshBasicMaterial).isMeshBasicMaterial;
       mesh.castShadow = this.archetype !== 'smiler' && lit && !inDisguise(mesh);
