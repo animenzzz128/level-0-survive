@@ -402,6 +402,7 @@ export class BackroomsEntity {
   private useModel(model: EntityModel, softShadowTex: THREE.CanvasTexture): void {
     this.model = model;
     this.addContactShadow(this.archetype === 'howler' ? 0.68 : this.archetype === 'smiler' ? 0.84 : 0.9, softShadowTex);
+    this.bodyParts.push(this.contactShadow);
     // Stand-ins for the procedural rig handles: respawn and the flinch touch them, the model never shows them.
     this.torsoRef = new THREE.Group();
     this.headRef = new THREE.Group();
@@ -498,6 +499,10 @@ export class BackroomsEntity {
     this.currentClip = name;
   }
 
+  private clipLength(name: string, fallback: number): number {
+    return this.actions.get(name)?.getClip().duration ?? fallback;
+  }
+
   private setMorph(name: string, value: number): void {
     this.morphLevels.set(name, value);
     for (const mesh of this.morphMeshes) {
@@ -525,7 +530,9 @@ export class BackroomsEntity {
     if (this.revealTimer > 0 && set.reveal) this.playClip(set.reveal, false, 0.05);
     else if (this.state === 'stagger') this.playClip('stagger', false, 0.05);
     else if (this.windupTimer > 0) this.playClip('attack_windup', false, 0.08);
-    else if (this.strikeTimer > 0) this.playClip('attack_strike', false, 0.05);
+    else if (this.strikeTimer > 0) {
+      this.playClip(this.strikeTimer > this.clipLength('attack_recover', 0.5) ? 'attack_strike' : 'attack_recover', false, 0.05);
+    }
     else if (this.state === 'retreat' && set.recoil) this.playClip(set.recoil, true, 0.15);
     else if (this.modelSpeed > 0.15) {
       const clip =
@@ -1488,7 +1495,7 @@ export class BackroomsEntity {
       this.windupTimer -= delta;
       if (this.windupTimer <= 0) {
         this.attackCooldown = 1.15;
-        this.strikeTimer = 0.3;
+        this.strikeTimer = this.clipLength('attack_strike', 0.25) + this.clipLength('attack_recover', 0.5);
         // Backing off (or breaking line of sight) during the wind-up dodges the blow.
         if (this.state === 'chase' && sees && dist <= WINDUP_REACH) hooks.onAttack(this, this.profile.attackDamage);
       }
@@ -1552,7 +1559,8 @@ export class BackroomsEntity {
     const t = 1 - Math.max(0, this.dyingTimer) / DYING_DURATION;
     if (this.model) {
       // The death (or banish) clip, a last VHS flicker, then gone.
-      this.playClip(this.removalReason === 'banished' ? 'banish' : CLIP_SETS[this.archetype].death, false, 0.08);
+      const banish = this.removalReason === 'banished' && this.actions.has('banish');
+      this.playClip(banish ? 'banish' : CLIP_SETS[this.archetype].death, false, 0.08);
       if (this.archetype === 'smiler') this.setMorph('face_collapse', t);
       this.mixer?.update(delta);
       this.group.visible = t < 0.75 || Math.random() > 0.5;

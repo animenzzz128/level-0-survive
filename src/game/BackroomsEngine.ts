@@ -621,6 +621,8 @@ export class BackroomsEngine {
   /** Models arrived: the title backdrop is rebuilt with them; a run in progress picks them up on its next level. */
   private onAssetsLoaded(): void {
     if (this.disposed || this.assets.loadedIds.length === 0) return;
+    const pistol = this.assets.instance('vm_pistol');
+    if (pistol) this.weapon.setModel(pistol);
     if (this.phase === 'title') {
       this.buildLevel(202611, this.difficulty);
       this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
@@ -2448,6 +2450,7 @@ export class BackroomsEngine {
     if (this.ammoInMag <= 0) {
       this.fireCooldown = 0.2;
       this.audio.playEmptyClick();
+      this.weapon.triggerEmpty();
       if (this.ammoReserve > 0) {
         this.startReload();
       } else {
