@@ -4,8 +4,8 @@
 
 | Part | License |
 |---|---|
-| The game's source code (`src/`, `index.html`, build, test and CI files) | [GNU General Public License v3.0 or later](LICENSE) |
-| Art, models, textures, audio files and design documents (`docs/`, `public/assets/` once added) | [Creative Commons Attribution-ShareAlike 3.0](LICENSES/CC-BY-SA-3.0.txt) (CC BY-SA 3.0) |
+| The game's source code (`src/`, `index.html`, build, test and CI files) and the model build scripts (`tools/`) | [GNU General Public License v3.0 or later](LICENSE) |
+| Art, 3D models, textures, audio files and design documents (`docs/`, `public/assets/`) | [Creative Commons Attribution-ShareAlike 3.0](LICENSES/CC-BY-SA-3.0.txt) (CC BY-SA 3.0) |
 
 The complete source is public in this repository, and the game built from it is playable at
 <https://animenzzz128.github.io/level-0-survive/>. There is no DRM, and no terms beyond these licenses apply.
@@ -39,3 +39,8 @@ Fonts (IBM Plex Mono, Oswald, Plus Jakarta Sans) are loaded from Google Fonts un
 ## How it was made
 
 Built with Google AI Studio and Claude (Anthropic) under Jacky Yao's direction.
+
+- The 3D models in `public/assets/models/` are built by Blender 4.5 scripts in `tools/blender/`, written with
+  Claude Code under Jacky Yao's direction. They are original to this game.
+- The concept images in `docs/design/art/concepts/` were made with an AI image tool at Jacky Yao's direction. Which
+  tool, and when, is still to be recorded there.

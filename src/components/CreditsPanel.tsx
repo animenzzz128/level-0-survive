@@ -90,7 +90,8 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ onClose }) => (
         three.js, React, Tailwind CSS and Lucide icons (MIT and ISC licenses;{' '}
         <ExternalLink href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`}>full notices</ExternalLink>). Fonts:
         IBM Plex Mono, Oswald and Plus Jakarta Sans (SIL Open Font License). Made with Google AI Studio and Claude
-        (Anthropic) under Jacky Yao&apos;s direction.
+        (Anthropic) under Jacky Yao&apos;s direction; the 3D models are built by Blender scripts written with Claude
+        Code.
       </p>
 
       <div className="mt-7 flex justify-end">
