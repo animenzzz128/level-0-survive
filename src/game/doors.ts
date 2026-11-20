@@ -46,7 +46,7 @@ export class DoorInstance {
   private readonly plane: [number, number, number, number];
   private readonly stubs: Array<[number, number, number, number]>;
 
-  constructor(spec: DoorSpec, mats: DoorMaterials) {
+  constructor(spec: DoorSpec, mats: DoorMaterials, panelModel: THREE.Object3D | null = null) {
     this.spec = spec;
     this.group.position.set(spec.x, 0, spec.z);
     // Built with the door plane along local X. A corridor running along world X needs the plane along world Z.
@@ -97,10 +97,20 @@ export class DoorInstance {
     const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.11), mats.frame);
     handle.position.set(panelWidth - 0.12, 1.0, 0);
     this.pivot.position.set(-OPENING_HALF + 0.04, 0, 0);
-    this.pivot.add(panel, handle);
+    if (panelModel) {
+      // props.glb door: origin on the hinge edge, panel along +X, the same size as the box panel.
+      this.pivot.add(panelModel);
+      panelModel.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) this.rayMeshes.push(obj);
+      });
+      panel.geometry.dispose();
+      handle.geometry.dispose();
+    } else {
+      this.pivot.add(panel, handle);
+      this.rayMeshes.push(panel);
+    }
     this.pivot.rotation.y = this.angle;
     this.group.add(this.pivot);
-    this.rayMeshes.push(panel);
 
     // World-space colliders and sight segments
     const alongZ = spec.axis === 'x'; // door plane spans world Z

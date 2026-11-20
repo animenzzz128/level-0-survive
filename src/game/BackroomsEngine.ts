@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GameAssets, findMesh, isAssetMesh } from './assets';
 import { HorrorAudioEngine } from './audio';
 import { DEFAULT_BINDINGS, GameAction, KeyBindings, KeyHints, actionForCode, keyHintsFor, normalizeCode } from './controls';
 import { DirectorActions, ThreatDirector } from './director';
@@ -200,6 +201,10 @@ export class BackroomsEngine {
   private camera!: THREE.PerspectiveCamera;
   private materials!: BackroomsMaterialSet;
   private audio = new HorrorAudioEngine();
+  // Blender models (tools/blender). Each is optional: until it loads, the procedural placeholder is used.
+  private readonly assets = new GameAssets(`${import.meta.env.BASE_URL}assets/models/`);
+  /** Materials made for one level on top of shared model meshes; disposed with the level. */
+  private levelMaterials: THREE.Material[] = [];
   private weapon!: TacticalWeaponViewmodel;
 
   private isSoftwareGl = false;
@@ -576,6 +581,37 @@ export class BackroomsEngine {
 
     this.lastTime = performance.now();
     this.scheduleNextTick();
+    void this.assets.loadAll().then(() => this.onAssetsLoaded());
+  }
+
+  /** Models arrived: the title backdrop is rebuilt with them; a run in progress picks them up on its next level. */
+  private onAssetsLoaded(): void {
+    if (this.disposed || this.assets.loadedIds.length === 0) return;
+    if (this.phase === 'title') {
+      this.buildLevel(202611, this.difficulty);
+      this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+    }
+    this.renderRequested = true;
+    this.emitHud();
+  }
+
+  /** A props.glb node (origin at its pivot), or null to keep the procedural placeholder. */
+  private prop(name: string, castShadow = false): THREE.Object3D | null {
+    const node = this.assets.prop(name);
+    if (!node) return null;
+    node.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        obj.castShadow = castShadow;
+        obj.receiveShadow = true;
+      }
+    });
+    return node;
+  }
+
+  /** Give the named meshes of a model copy their own material for this level. */
+  private retexture(root: THREE.Object3D, meshName: string, material: THREE.Material): void {
+    for (const mesh of findMesh(root, meshName)) mesh.material = material;
+    this.levelMaterials.push(material);
   }
 
   private handleContextLost = (e: Event): void => {
@@ -620,6 +656,8 @@ export class BackroomsEngine {
     for (const grp of [this.levelGroup, this.entityGroup, this.pickupGroup]) {
       grp.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh)) return;
+        // Model meshes share geometry and materials with the asset cache.
+        if (isAssetMesh(obj)) return;
         if (obj instanceof THREE.InstancedMesh) queued.add(obj);
         queued.add(obj.geometry);
         for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
@@ -627,6 +665,8 @@ export class BackroomsEngine {
         }
       });
     }
+    for (const m of this.levelMaterials) queued.add(m);
+    this.levelMaterials = [];
     this.pendingDisposal.push(...queued);
 
     // fxGroup only holds impact particles, which share particleGeo/particleMats.
@@ -766,12 +806,16 @@ export class BackroomsEngine {
     // 5. Recessed Fluorescent Light Troffers (Instanced frames + emissive diffusers)
     const fixtures = this.level.fixtures;
     if (fixtures.length > 0) {
-      const frameGeo = new THREE.BoxGeometry(0.76, 0.05, 1.38);
+      // props.glb troffer (origin on the ceiling plane) when loaded, else boxes centred just under the ceiling.
+      const modelFrame = this.assets.propGeometry('prop_troffer', 'troffer_frame');
+      const modelLens = this.assets.propGeometry('prop_troffer', 'troffer_lens');
+      const frameGeo = modelFrame ?? new THREE.BoxGeometry(0.76, 0.05, 1.38);
+      const frameY = modelFrame ? WALL_HEIGHT : WALL_HEIGHT - 0.02;
+      const lensY = modelLens ? WALL_HEIGHT : WALL_HEIGHT - 0.048;
       const frameInst = new THREE.InstancedMesh(frameGeo, this.materials.lightFixtureFrame, fixtures.length);
       frameInst.frustumCulled = false;
 
-      const panelGeo = new THREE.PlaneGeometry(0.66, 1.28);
-      panelGeo.rotateX(Math.PI / 2);
+      const panelGeo = modelLens ?? new THREE.PlaneGeometry(0.66, 1.28).rotateX(Math.PI / 2);
       const panelInst = new THREE.InstancedMesh(panelGeo, this.materials.lightPanelOn, fixtures.length);
       panelInst.frustumCulled = false;
 
@@ -791,13 +835,13 @@ export class BackroomsEngine {
       this.glowOn = new Uint8Array(fixtures.length);
 
       fixtures.forEach((f, idx) => {
-        dummy.position.set(f.x, WALL_HEIGHT - 0.02, f.z);
+        dummy.position.set(f.x, frameY, f.z);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
         frameInst.setMatrixAt(idx, dummy.matrix);
 
-        dummy.position.set(f.x, WALL_HEIGHT - 0.048, f.z);
+        dummy.position.set(f.x, lensY, f.z);
         dummy.updateMatrix();
         panelInst.setMatrixAt(idx, dummy.matrix);
 
@@ -883,7 +927,12 @@ export class BackroomsEngine {
     });
 
     this.level.pillars.forEach((p, idx) => {
-      if (idx % 2 === 0) {
+      const decor = this.prop(idx % 2 === 0 ? 'prop_fallen_tile' : 'prop_cone');
+      if (decor) {
+        decor.position.set(idx % 2 === 0 ? p.x + 0.65 : p.x - 0.62, 0, idx % 2 === 0 ? p.z + 0.25 : p.z + 0.52);
+        decor.rotation.y = 0.35 * idx;
+        this.levelGroup.add(decor);
+      } else if (idx % 2 === 0) {
         // Fallen broken acoustic tile near pillar base
         const tile = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.025, 0.68), fallenTileMat);
         tile.position.set(p.x + 0.65, 0.015, p.z + 0.25);
@@ -932,6 +981,27 @@ export class BackroomsEngine {
     exitGroup.position.copy(this.level.exitPos);
     exitGroup.rotation.y = this.level.exitRotY;
 
+    const exitModel = this.prop('prop_exit_door', true);
+    if (exitModel) {
+      // Same colour switching as the procedural beacon: the model's beacon and keypad LED share exitBeaconMat.
+      exitModel.rotation.y = Math.PI;
+      this.exitBeaconMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+      this.levelMaterials.push(this.exitBeaconMat);
+      exitModel.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        if (mats.some((m) => m.name === 'exit_beacon')) mesh.material = this.exitBeaconMat;
+      });
+      exitGroup.updateMatrix();
+      this.exitLightPos.set(0, 2.5, -0.6).applyMatrix4(exitGroup.matrix);
+      this.exitLightColor = 0xff3b30;
+      this.exitLightIntensity = 1.8;
+      exitGroup.add(exitModel);
+      this.levelGroup.add(exitGroup);
+      return;
+    }
+
     // Heavy metal door frame
     const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.55, 0.2), this.materials.exitFrame);
     frameL.position.set(-0.92, 1.275, 0);
@@ -962,6 +1032,7 @@ export class BackroomsEngine {
     const keypadLed = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.08), this.exitBeaconMat);
     keypadLed.position.set(-1.12, 1.43, -0.105);
     keypadLed.rotation.y = Math.PI;
+
 
     // The beacon's light is a slot in the shared light pool (updateLights), placed here in world space.
     exitGroup.updateMatrix();
@@ -1040,7 +1111,37 @@ export class BackroomsEngine {
       let rotTarget: THREE.Object3D = grp;
       let baseY = 0;
 
-      if (p.kind === 'tape') {
+      const model = this.prop(
+        p.kind === 'tape' ? 'prop_vhs' : p.kind === 'ammo' ? 'prop_ammo_can' : p.kind === 'battery' ? 'prop_battery' : 'prop_almond_water',
+      );
+      if (model && p.kind === 'tape') {
+        grp.add(this.buildOfficeTable(propShadowMat, false));
+        this.hideSpots.push({ x: p.x, z: p.z });
+        const vhs = new THREE.Group();
+        vhs.position.y = 0.92;
+        this.retexture(model, 'vhs_label', new THREE.MeshStandardMaterial({
+          map: this.materials.vhsLabelTex,
+          emissive: new THREE.Color(0xffa020),
+          emissiveIntensity: 0.32,
+          roughness: 0.38,
+        }));
+        vhs.add(model);
+        grp.add(vhs);
+        rotTarget = vhs;
+        baseY = 0.92;
+      } else if (model) {
+        const shadow = new THREE.Mesh(
+          new THREE.PlaneGeometry(p.kind === 'ammo' ? 0.75 : 0.42, p.kind === 'ammo' ? 0.55 : 0.42).rotateX(-Math.PI / 2),
+          propShadowMat,
+        );
+        shadow.position.y = 0.015;
+        grp.add(shadow);
+        const holder = new THREE.Group();
+        holder.add(model);
+        grp.add(holder);
+        rotTarget = holder;
+        baseY = 0;
+      } else if (p.kind === 'tape') {
         // Tape tables double as hiding spots once the tape is taken.
         grp.add(this.buildOfficeTable(propShadowMat, false));
         this.hideSpots.push({ x: p.x, z: p.z });
@@ -1143,6 +1244,12 @@ export class BackroomsEngine {
     tableShadow.position.y = 0.015;
     grp.add(tableShadow);
 
+    const model = this.prop(modestyPanel ? 'prop_desk_hide' : 'prop_office_table', true);
+    if (model) {
+      grp.add(model);
+      return grp;
+    }
+
     const top = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.055, 0.72), this.materials.tableTop);
     top.position.y = 0.78;
     top.castShadow = true;
@@ -1192,7 +1299,22 @@ export class BackroomsEngine {
       // Footprint against the wall (m); halfWidth 0 means no collider (wall-mounted, above head height).
       let halfWidth = 0;
       let depth = 0.06;
-      if (spec.kind === 'vending') {
+      const model = this.prop(`lm_${spec.kind}`, spec.kind !== 'neon');
+      if (model) {
+        const size = { vending: [0.48, 0.8], cooler: [0.2, 0.4], crt: [0.4, 0.55], neon: [0, 0.06] }[spec.kind];
+        halfWidth = size[0];
+        depth = size[1];
+        if (spec.kind === 'neon') {
+          model.position.y = 2.25;
+          this.retexture(model, 'neon_face', new THREE.MeshBasicMaterial({
+            map: this.materials.neonSignTex,
+            transparent: true,
+            depthWrite: false,
+            toneMapped: false,
+          }));
+        }
+        grp.add(model);
+      } else if (spec.kind === 'vending') {
         const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.9, 0.8), mat(0x6e1c18, { roughness: 0.45, metalness: 0.35 }));
         body.position.y = 0.95;
         const glass = new THREE.Mesh(
@@ -1256,7 +1378,8 @@ export class BackroomsEngine {
       const offset = CELL_SIZE / 2 - depth / 2 - 0.04;
       grp.position.set(cell.x + backX * offset, 0, cell.z + backZ * offset);
       grp.rotation.y = spec.rotY;
-      mergeStaticMeshes(grp);
+      // Model meshes are shared with the asset cache and must not be merged (merging disposes the originals).
+      if (!model) mergeStaticMeshes(grp);
       grp.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (!mesh.isMesh) return;
@@ -1453,11 +1576,11 @@ export class BackroomsEngine {
       metalness: 0.15,
     });
     for (const spec of this.level.doors) {
-      const door = new DoorInstance(spec, {
-        wall: this.materials.wallpaper,
-        frame: this.materials.exitFrame,
-        panel: panelMat,
-      });
+      const door = new DoorInstance(
+        spec,
+        { wall: this.materials.wallpaper, frame: this.materials.exitFrame, panel: panelMat },
+        this.prop('prop_door', true),
+      );
       this.levelGroup.add(door.group);
       this.wallRayMeshes.push(...door.rayMeshes);
       this.colliders.push(...door.colliders);
