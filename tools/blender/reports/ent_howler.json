@@ -210,6 +210,29 @@
     }
   },
   "triangles_total": 11569,
+  "rest_sockets": {
+    "HIT_head": [
+      0.0,
+      2.15,
+      0.2925
+    ],
+    "SOCKET_mouth": [
+      0.0,
+      2.165,
+      0.3752
+    ],
+    "HIT_body": [
+      0.0,
+      1.0925,
+      0.08
+    ],
+    "JS_CAM": [
+      0.0,
+      1.7,
+      1.05
+    ]
+  },
+  "socket_warnings": [],
   "materials": [
     "howler_body",
     "howler_starter"
