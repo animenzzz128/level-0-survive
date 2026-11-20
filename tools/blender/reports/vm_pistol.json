@@ -201,6 +201,24 @@
     }
   },
   "triangles_total": 12118,
+  "rest_sockets": {
+    "SOCKET_eject": [
+      0.017,
+      0.0345,
+      0.014
+    ],
+    "SOCKET_light": [
+      0.0,
+      -0.051,
+      -0.164
+    ],
+    "SOCKET_muzzle": [
+      0.0,
+      0.02,
+      -0.302
+    ]
+  },
+  "socket_warnings": [],
   "materials": [
     "tritium",
     "vm_arms",
