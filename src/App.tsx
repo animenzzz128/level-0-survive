@@ -52,6 +52,8 @@ const INITIAL_HUD: HudState = {
   damageDirectionAlpha: 0,
   killedBy: null,
   signalLost: false,
+  modelsDone: 0,
+  modelsTotal: 0,
   reduceFlashing: false,
   hitmarkerState: 'none',
   crosshairSpread: 0,

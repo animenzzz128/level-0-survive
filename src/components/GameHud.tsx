@@ -513,6 +513,11 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span>VHS ARCHIVE 04</span>
               <span className="text-[#a89e79]">·</span>
               <span className="text-[#bfb693]">LEVEL 0 THRESHOLD</span>
+              {hud.modelsTotal > 0 && hud.modelsDone < hud.modelsTotal && (
+                <span className="text-[#a89e79]" role="status">
+                  · LOADING MODELS {hud.modelsDone}/{hud.modelsTotal}
+                </span>
+              )}
             </div>
             <button
               type="button"

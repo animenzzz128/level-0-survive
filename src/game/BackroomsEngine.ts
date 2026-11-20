@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { GameAssets, findMesh, isAssetMesh, type ModelId } from './assets';
+import { GameAssets, MODEL_FILES, findMesh, isAssetMesh, type ModelId } from './assets';
 import { HorrorAudioEngine } from './audio';
 import { DEFAULT_BINDINGS, GameAction, KeyBindings, KeyHints, actionForCode, keyHintsFor, normalizeCode } from './controls';
 import { DirectorActions, ThreatDirector } from './director';
@@ -53,6 +53,7 @@ const _jsLook = new THREE.Vector3();
 const _jsSpark = new THREE.Vector3();
 const _jsQuat = new THREE.Quaternion();
 const BASE_EXPOSURE = 1.08;
+const MODEL_COUNT = Object.keys(MODEL_FILES).length;
 const HEMI_INTENSITY = 0.26;
 /** How long "SIGNAL LOST" stays up before the results screen. */
 const SIGNAL_LOST_SECONDS = 0.6;
@@ -275,6 +276,7 @@ export class BackroomsEngine {
     signalLostAt: number;
   } | null = null;
   private signalLost = false;
+  private modelsDone = 0;
   private flashlightTarget = new THREE.Object3D();
   private flashlightCone!: THREE.Mesh;
   private dustPoints!: THREE.Points;
@@ -615,7 +617,12 @@ export class BackroomsEngine {
 
     this.lastTime = performance.now();
     this.scheduleNextTick();
-    void this.assets.loadAll().then(() => this.onAssetsLoaded());
+    void this.assets
+      .loadAll(() => {
+        this.modelsDone++;
+        this.emitHud();
+      })
+      .then(() => this.onAssetsLoaded());
   }
 
   /** Models arrived: the title backdrop is rebuilt with them; a run in progress picks them up on its next level. */
@@ -3445,6 +3452,8 @@ export class BackroomsEngine {
           }
         : null,
       seed: this.level.seed,
+      modelsDone: this.modelsDone,
+      modelsTotal: MODEL_COUNT,
       interactPrompt,
       webglError,
     };
