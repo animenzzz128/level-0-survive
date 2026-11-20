@@ -149,6 +149,57 @@ function buildProfile(archetype: EntityArchetype, nightmare: boolean): Archetype
   };
 }
 
+/** A Blender model for an entity (GameAssets.instance): skinned body, sockets and clips (model-contract.md). */
+export interface EntityModel {
+  root: THREE.Object3D;
+  clips: THREE.AnimationClip[];
+}
+
+interface ClipSet {
+  idle: string;
+  walk: string;
+  stalk: string;
+  run: string;
+  runLost: string;
+  death: string;
+  recoil?: string;
+  reveal?: string;
+}
+
+const CLIP_SETS: Record<EntityArchetype, ClipSet> = {
+  howler: { idle: 'idle_listen', walk: 'walk', stalk: 'stalk', run: 'lope', runLost: 'run_search', death: 'death' },
+  smiler: {
+    idle: 'hover_idle',
+    walk: 'glide',
+    stalk: 'glide_hunt',
+    run: 'glide_hunt',
+    runLost: 'glide_hunt',
+    death: 'banish',
+    recoil: 'lit_recoil',
+  },
+  brute: { idle: 'idle', walk: 'walk_limp', stalk: 'stalk', run: 'lurch', runLost: 'lurch', death: 'death', reveal: 'reveal' },
+};
+
+/** Speeds the locomotion clips were authored at (model-contract.md); playback scales with the actual speed. */
+const AUTHORED_SPEED: Record<string, number> = {
+  'brute:walk_limp': 1.45,
+  'brute:stalk': 2.55,
+  'brute:lurch': 3.65,
+  'howler:walk': 1.85,
+  'howler:stalk': 3.2,
+  'howler:lope': 4.55,
+  'howler:run_search': 3.64,
+  'smiler:glide': 1.6,
+  'smiler:glide_hunt': 3.3,
+};
+
+/** Hit boxes (width, height, depth), the same as the procedural bodies. With a model they ride on HIT_* sockets. */
+const HITBOX_SIZE: Record<EntityArchetype, { head: [number, number, number, number]; body: [number, number, number, number] }> = {
+  howler: { head: [0.45, 0.48, 0.45, 2.15], body: [0.7, 1.635, 0.65, 1.0925] },
+  smiler: { head: [0.6, 0.55, 0.6, 1.88], body: [0.85, 1.43, 0.75, 0.89] },
+  brute: { head: [0.55, 0.5, 0.55, 2.02], body: [0.95, 1.47, 0.75, 1.035] },
+};
+
 const LIT_CONE_COS = 0.86; // ~31°, inside the flashlight spot cone
 const LIT_RANGE = 15;
 const BANISH_EXPOSURE = 1.6; // seconds of direct light that banish a Smiler
@@ -232,9 +283,22 @@ export class BackroomsEntity {
   private lastProgressPos = new THREE.Vector3();
   private stateAtLastUpdate: EntityState = 'patrol';
 
-  private readonly bodyMat: THREE.MeshStandardMaterial;
+  private bodyMat: THREE.MeshStandardMaterial;
   private readonly accentMat: THREE.MeshStandardMaterial;
 
+  // Blender model path (null: procedural body).
+  private model: EntityModel | null = null;
+  private mixer: THREE.AnimationMixer | null = null;
+  private readonly actions = new Map<string, THREE.AnimationAction>();
+  private currentClip = '';
+  private currentAction: THREE.AnimationAction | null = null;
+  private strikeTimer = 0;
+  private readonly lastModelPos = new THREE.Vector3();
+  private modelSpeed = 0;
+  private readonly morphMeshes: THREE.Mesh[] = [];
+  private readonly morphLevels = new Map<string, number>();
+  private readonly sockets = new Map<string, THREE.Object3D>();
+  private jumpscareTime = -1;
   private torsoRef!: THREE.Object3D;
   private headRef!: THREE.Object3D;
   private leftArmRef!: THREE.Object3D;
@@ -251,6 +315,7 @@ export class BackroomsEntity {
     textures: EntityTextureBundle,
     nightmare: boolean,
     disguised = false,
+    model: EntityModel | null = null,
   ) {
     this.id = id;
     this.archetype = archetype;
@@ -279,7 +344,7 @@ export class BackroomsEntity {
         roughness: 0.62,
         metalness: 0.34,
       });
-      this.buildHowlerMesh(textures.softShadowTex);
+      if (!model) this.buildHowlerMesh(textures.softShadowTex);
     } else if (archetype === 'smiler') {
       this.bodyMat = new THREE.MeshStandardMaterial({
         color: 0x030305,
@@ -293,7 +358,7 @@ export class BackroomsEntity {
         transparent: true,
         opacity: 0.86,
       });
-      this.buildSmilerMesh(textures.smilerFace, textures.smilerHaloTex, textures.softShadowTex);
+      if (!model) this.buildSmilerMesh(textures.smilerFace, textures.smilerHaloTex, textures.softShadowTex);
     } else {
       this.bodyMat = new THREE.MeshStandardMaterial({
         color: 0xd8cab8,
@@ -311,22 +376,223 @@ export class BackroomsEntity {
         roughness: 0.56,
         metalness: 0.06,
       });
-      this.buildBruteMesh(textures.softShadowTex);
+      if (!model) this.buildBruteMesh(textures.softShadowTex);
     }
 
-    // Fewer draw calls (performance C3): join each rig piece's static parts per material, and let only large lit
-    // parts cast shadows (teeth, claws, eyes and even the contact-shadow decal used to cast one each).
-    const keep = new Set<THREE.Object3D>([this.contactShadow, ...this.bodyHitMeshes]);
-    if (this.smilerFaceMesh) keep.add(this.smilerFaceMesh);
-    mergeStaticMeshes(this.group, keep);
-    if (archetype !== 'smiler') this.configureShadows();
-    this.bodyParts.push(...this.group.children);
-    if (archetype === 'brute') this.buildDisguise(textures.softShadowTex);
+    if (model) {
+      this.useModel(model, textures.softShadowTex);
+    } else {
+      // Fewer draw calls (performance C3): join each rig piece's static parts per material, and let only large lit
+      // parts cast shadows (teeth, claws, eyes and even the contact-shadow decal used to cast one each).
+      const keep = new Set<THREE.Object3D>([this.contactShadow, ...this.bodyHitMeshes]);
+      if (this.smilerFaceMesh) keep.add(this.smilerFaceMesh);
+      mergeStaticMeshes(this.group, keep);
+      if (archetype !== 'smiler') this.configureShadows();
+      this.bodyParts.push(...this.group.children);
+      if (archetype === 'brute') this.buildDisguise(textures.softShadowTex);
+    }
 
     this.cachedNextWaypoint.copy(this.position);
     this.patrolTarget.copy(this.position);
     this.lastProgressPos.copy(this.position);
     if (disguised) this.disguise();
+  }
+
+  /** Use a Blender model instead of the procedural body (model-contract.md). */
+  private useModel(model: EntityModel, softShadowTex: THREE.CanvasTexture): void {
+    this.model = model;
+    this.addContactShadow(this.archetype === 'howler' ? 0.68 : this.archetype === 'smiler' ? 0.84 : 0.9, softShadowTex);
+    // Stand-ins for the procedural rig handles: respawn and the flinch touch them, the model never shows them.
+    this.torsoRef = new THREE.Group();
+    this.headRef = new THREE.Group();
+    this.leftArmRef = new THREE.Group();
+    this.rightArmRef = new THREE.Group();
+    this.group.add(model.root);
+
+    let disguiseNode: THREE.Object3D | null = null;
+    model.root.traverse((obj) => {
+      if (obj.name === 'disguise_bottle') disguiseNode = obj;
+      if (obj.name.startsWith('HIT_') || obj.name.startsWith('SOCKET_') || obj.name === 'JS_CAM') this.sockets.set(obj.name, obj);
+    });
+    const inDisguise = (obj: THREE.Object3D) => {
+      for (let o: THREE.Object3D | null = obj; o; o = o.parent) if (o === disguiseNode) return true;
+      return false;
+    };
+    let mainMaterial: THREE.MeshStandardMaterial | null = null;
+    model.root.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      // Own copies of the materials: a hit flash must not light up every entity of this kind.
+      const own = (m: THREE.Material) => {
+        const copy = m.clone();
+        if (!mainMaterial && (copy as THREE.MeshStandardMaterial).isMeshStandardMaterial && !inDisguise(mesh)) {
+          mainMaterial = copy as THREE.MeshStandardMaterial;
+        }
+        return copy;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(own) : own(mesh.material);
+      mesh.userData.ownMaterials = true;
+      // Skinned bounds do not follow the animation; culling them makes limbs pop out of view.
+      mesh.frustumCulled = false;
+      const first = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const lit = !(first as THREE.MeshBasicMaterial).isMeshBasicMaterial;
+      mesh.castShadow = this.archetype !== 'smiler' && lit && !inDisguise(mesh);
+      mesh.receiveShadow = lit;
+      if (mesh.morphTargetDictionary && Object.keys(mesh.morphTargetDictionary).length > 0) this.morphMeshes.push(mesh);
+      if (mesh.name === 'smiler_face' || mesh.parent?.name === 'smiler_face') this.smilerFaceMesh = mesh;
+      if (!inDisguise(mesh)) this.bodyParts.push(mesh);
+    });
+    if (mainMaterial) this.bodyMat = mainMaterial;
+
+    // Hit boxes ride on the HIT_* sockets, so they follow the pose (a Howler at full lope carries its head low).
+    const sizes = HITBOX_SIZE[this.archetype];
+    for (const [socketName, [w, h, d, y], isHead] of [
+      ['HIT_head', sizes.head, true],
+      ['HIT_body', sizes.body, false],
+    ] as const) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ visible: false }));
+      box.userData.entityId = this.id;
+      box.userData.isHead = isHead;
+      const socket = this.sockets.get(socketName);
+      if (socket) {
+        socket.add(box);
+      } else {
+        box.position.y = y;
+        this.group.add(box);
+      }
+      this.bodyHitMeshes.push(box);
+    }
+
+    if (this.archetype === 'brute') {
+      if (disguiseNode) {
+        const node = disguiseNode as THREE.Object3D;
+        const hit = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.55, 0.4), new THREE.MeshBasicMaterial({ visible: false }));
+        hit.position.y = 0.25;
+        hit.userData.entityId = this.id;
+        hit.userData.isHead = false;
+        node.add(hit);
+        node.visible = false;
+        this.disguiseGroup = node as THREE.Group;
+        this.disguiseHitMesh = hit;
+      } else {
+        this.buildDisguise(softShadowTex);
+      }
+    }
+
+    this.mixer = new THREE.AnimationMixer(model.root);
+    for (const clip of model.clips) this.actions.set(clip.name, this.mixer.clipAction(clip));
+    this.lastModelPos.copy(this.position);
+  }
+
+  private playClip(name: string, loop: boolean, fade: number, timeScale = 1): void {
+    const action = this.actions.get(name);
+    if (!action) return;
+    action.timeScale = timeScale;
+    if (this.currentClip === name) return;
+    action.reset();
+    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+    action.clampWhenFinished = !loop;
+    action.play();
+    if (this.currentAction) this.currentAction.crossFadeTo(action, fade, false);
+    this.currentAction = action;
+    this.currentClip = name;
+  }
+
+  private setMorph(name: string, value: number): void {
+    this.morphLevels.set(name, value);
+    for (const mesh of this.morphMeshes) {
+      const index = mesh.morphTargetDictionary?.[name];
+      if (index !== undefined && mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = value;
+    }
+  }
+
+  private easeMorph(name: string, target: number, rate: number, delta: number): void {
+    this.setMorph(name, THREE.MathUtils.damp(this.morphLevels.get(name) ?? 0, target, rate, delta));
+  }
+
+  /** Clip choice for the model: one-shots for reveal, stagger and attacks, otherwise locomotion by state and speed. */
+  private animateModel(delta: number, lit: boolean): void {
+    if (!this.mixer) return;
+    const moved = Math.hypot(this.position.x - this.lastModelPos.x, this.position.z - this.lastModelPos.z);
+    this.lastModelPos.copy(this.position);
+    this.modelSpeed = THREE.MathUtils.damp(this.modelSpeed, delta > 0 ? moved / delta : 0, 8, delta);
+    if (this.strikeTimer > 0) this.strikeTimer -= delta;
+    this.flinch = THREE.MathUtils.damp(this.flinch, 0, 10, delta);
+    if (this.model) this.model.root.rotation.x = -0.12 * this.flinch;
+    const set = CLIP_SETS[this.archetype];
+    const attacking = this.windupTimer > 0 || this.strikeTimer > 0;
+
+    if (this.revealTimer > 0 && set.reveal) this.playClip(set.reveal, false, 0.05);
+    else if (this.state === 'stagger') this.playClip('stagger', false, 0.05);
+    else if (this.windupTimer > 0) this.playClip('attack_windup', false, 0.08);
+    else if (this.strikeTimer > 0) this.playClip('attack_strike', false, 0.05);
+    else if (this.state === 'retreat' && set.recoil) this.playClip(set.recoil, true, 0.15);
+    else if (this.modelSpeed > 0.15) {
+      const clip =
+        this.state === 'chase'
+          ? this.hasLineOfSightToPlayer
+            ? set.run
+            : set.runLost
+          : this.state === 'investigate'
+            ? set.stalk
+            : set.walk;
+      const authored = AUTHORED_SPEED[`${this.archetype}:${clip}`] ?? this.modelSpeed;
+      this.playClip(clip, true, 0.25, THREE.MathUtils.clamp(this.modelSpeed / authored, 0.5, 1.8));
+    } else {
+      this.playClip(set.idle, true, 0.3);
+    }
+
+    if (this.archetype === 'smiler') {
+      const hunting = this.state === 'chase' || this.state === 'investigate';
+      this.easeMorph('grin_wide', attacking ? 1 : hunting ? 0.35 : 0, 8, delta);
+      this.easeMorph('grin_open', attacking ? 1 : 0, 12, delta);
+      this.easeMorph('eyes_narrow', this.state === 'investigate' ? 0.6 : 0, 6, delta);
+      // Caught in the beam (or shot): the face tears like a bad tape.
+      this.setMorph('face_tear', lit || this.hitFlashTimer > 0 ? (Math.random() < 0.4 ? Math.random() : 0) : 0);
+    } else if (this.archetype === 'brute') {
+      this.easeMorph('mouth_hole_open', attacking ? 1 : 0, 10, delta);
+    }
+    this.mixer.update(delta);
+  }
+
+  public get hasModel(): boolean {
+    return this.model !== null;
+  }
+
+  /** Start the kill animation (model only). Returns its length in seconds, 0 when there is none. */
+  public beginJumpscare(): number {
+    const action = this.actions.get('jumpscare');
+    if (!action || !this.mixer) return 0;
+    this.jumpscareTime = 0;
+    this.windupTimer = 0;
+    this.strikeTimer = 0;
+    this.playClip('jumpscare', false, 0.05);
+    return action.getClip().duration;
+  }
+
+  /** Advance the kill animation and its face changes (art-bible section 5). */
+  public updateJumpscare(delta: number): void {
+    if (!this.mixer || this.jumpscareTime < 0) return;
+    this.jumpscareTime += delta;
+    const t = this.jumpscareTime;
+    if (this.archetype === 'brute') {
+      this.setMorph('mask_slip', THREE.MathUtils.smoothstep(t, 0.6, 1.0));
+      this.setMorph('mouth_hole_open', THREE.MathUtils.smoothstep(t, 0.8, 1.1));
+    } else if (this.archetype === 'smiler') {
+      this.setMorph('grin_wide', THREE.MathUtils.smoothstep(t, 0.2, 0.5));
+      this.setMorph('grin_open', THREE.MathUtils.smoothstep(t, 0.5, 0.9));
+      this.setMorph('face_tear', (t > 0.55 && t < 0.62) || (t > 0.75 && t < 0.8) ? 1 : 0);
+    }
+    this.mixer.update(delta);
+  }
+
+  /** World position of a socket (HIT_*, SOCKET_*, JS_CAM); false when the model has none by that name. */
+  public socketWorld(name: string, target: THREE.Vector3): boolean {
+    const node = this.sockets.get(name);
+    if (!node) return false;
+    node.updateWorldMatrix(true, false);
+    node.getWorldPosition(target);
+    return true;
   }
 
   private configureShadows(): void {
@@ -775,7 +1041,7 @@ export class BackroomsEntity {
     this.state = 'chase';
     this.awareness = 1;
     this.revealTimer = REVEAL_DURATION;
-    this.group.scale.set(1, 0.25, 1);
+    if (!this.model) this.group.scale.set(1, 0.25, 1);
     this.screechCooldown = 5.5;
     this.stuckTimer = 0;
   }
@@ -788,6 +1054,14 @@ export class BackroomsEntity {
     this.group.visible = true;
     this.group.scale.set(1, 1, 1);
     this.torsoRef.rotation.set(0, 0, 0);
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.currentClip = '';
+      this.currentAction = null;
+      this.jumpscareTime = -1;
+      for (const name of [...this.morphLevels.keys()]) this.setMorph(name, 0);
+      this.morphLevels.clear();
+    }
     this.bodyMat.emissive.setHex(0x000000);
     this.bodyMat.emissiveIntensity = 0;
     this.lightExposure = 0;
@@ -995,11 +1269,12 @@ export class BackroomsEntity {
       // Unfolding out of the bottle: grow to full height, then hunt.
       this.revealTimer -= delta;
       const t = 1 - Math.max(0, this.revealTimer) / REVEAL_DURATION;
-      this.group.scale.set(1, 0.25 + 0.75 * t, 1);
+      if (!this.model) this.group.scale.set(1, 0.25 + 0.75 * t, 1);
       this.turnToward(player.pos.x, player.pos.z, delta, 12);
       this.lastKnown.copy(player.pos);
       this.hasLastKnown = true;
-      this.animate(delta, false);
+      if (this.model) this.animateModel(delta, false);
+      else this.animate(delta, false);
       this.stateAtLastUpdate = this.state;
       return;
     }
@@ -1213,6 +1488,7 @@ export class BackroomsEntity {
       this.windupTimer -= delta;
       if (this.windupTimer <= 0) {
         this.attackCooldown = 1.15;
+        this.strikeTimer = 0.3;
         // Backing off (or breaking line of sight) during the wind-up dodges the blow.
         if (this.state === 'chase' && sees && dist <= WINDUP_REACH) hooks.onAttack(this, this.profile.attackDamage);
       }
@@ -1234,7 +1510,8 @@ export class BackroomsEntity {
       this.voice?.playIdle(this.archetype);
     }
 
-    this.animate(delta, lit);
+    if (this.model) this.animateModel(delta, lit);
+    else this.animate(delta, lit);
     this.stateAtLastUpdate = this.state;
   }
 
@@ -1271,9 +1548,22 @@ export class BackroomsEntity {
       this.hitFreeze -= delta;
       return;
     }
-    // VHS-glitch collapse: flicker, jitter sideways and sink into the carpet.
     this.dyingTimer -= delta;
     const t = 1 - Math.max(0, this.dyingTimer) / DYING_DURATION;
+    if (this.model) {
+      // The death (or banish) clip, a last VHS flicker, then gone.
+      this.playClip(this.removalReason === 'banished' ? 'banish' : CLIP_SETS[this.archetype].death, false, 0.08);
+      if (this.archetype === 'smiler') this.setMorph('face_collapse', t);
+      this.mixer?.update(delta);
+      this.group.visible = t < 0.75 || Math.random() > 0.5;
+      if (this.dyingTimer <= 0) {
+        this.group.visible = false;
+        this.state = 'removed';
+        hooks.onRemoved(this, this.removalReason);
+      }
+      return;
+    }
+    // VHS-glitch collapse: flicker, jitter sideways and sink into the carpet.
     this.group.scale.set(
       1 + (Math.random() - 0.5) * 0.35 * t,
       Math.max(0.02, 1 - t * 0.95),

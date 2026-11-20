@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { GameAssets, findMesh, isAssetMesh } from './assets';
+import { GameAssets, findMesh, isAssetMesh, type ModelId } from './assets';
 import { HorrorAudioEngine } from './audio';
 import { DEFAULT_BINDINGS, GameAction, KeyBindings, KeyHints, actionForCode, keyHintsFor, normalizeCode } from './controls';
 import { DirectorActions, ThreatDirector } from './director';
@@ -48,6 +48,12 @@ const TAPE_LOGS = [
   'If you are hearing this, the door is open, and they know. Do not stop for the water. Not all of it is water.',
 ];
 const TAPE_LOG_CPS = 40;
+/** The Blender model for each entity kind (the Skin-Stealer is 'brute' in code). */
+const ENTITY_MODEL: Record<EntityArchetype, ModelId> = {
+  howler: 'ent_howler',
+  smiler: 'ent_smiler',
+  brute: 'ent_skin_stealer',
+};
 const WATER_HEAL = 35;
 const BATTERY_CHARGE = 45;
 // Supplies are used on contact only when at least 60% of their value would land; otherwise they stay put
@@ -656,8 +662,11 @@ export class BackroomsEngine {
     for (const grp of [this.levelGroup, this.entityGroup, this.pickupGroup]) {
       grp.traverse((obj) => {
         if (!(obj instanceof THREE.Mesh)) return;
-        // Model meshes share geometry and materials with the asset cache.
-        if (isAssetMesh(obj)) return;
+        // Model meshes share geometry (and, unless they were given their own copies, materials) with the asset cache.
+        if (isAssetMesh(obj)) {
+          if (obj.userData.ownMaterials) for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) queued.add(m);
+          return;
+        }
         if (obj instanceof THREE.InstancedMesh) queued.add(obj);
         queued.add(obj.geometry);
         for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
@@ -1618,6 +1627,7 @@ export class BackroomsEngine {
       },
       this.difficulty === 'nightmare',
       disguised,
+      this.assets.instance(ENTITY_MODEL[archetype]),
     );
     this.entities.push(entity);
     this.entityGroup.add(entity.group);
