@@ -618,6 +618,11 @@ export class BackroomsEngine {
 
     this.lastTime = performance.now();
     this.scheduleNextTick();
+    // ?models=0 keeps every procedural placeholder (comparisons, or a machine that struggles with the models).
+    if (new URLSearchParams(window.location.search).get('models') === '0') {
+      this.modelsDone = MODEL_COUNT;
+      return;
+    }
     void this.assets
       .loadAll(() => {
         this.modelsDone++;
