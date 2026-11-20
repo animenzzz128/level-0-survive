@@ -1,6 +1,6 @@
 {
   "file": "ent_smiler.glb",
-  "bytes": 1256292,
+  "bytes": 1256340,
   "nodes": [
     {
       "name": "smiler_rig",
@@ -208,6 +208,34 @@
     }
   },
   "triangles_total": 7002,
+  "rest_sockets": {
+    "JS_CAM": [
+      0.0,
+      1.95,
+      0.83
+    ],
+    "HIT_head": [
+      0.0,
+      1.88,
+      -0.0
+    ],
+    "SOCKET_eyes": [
+      0.0,
+      2.03,
+      0.23
+    ],
+    "SOCKET_mouth": [
+      0.0,
+      1.86,
+      0.28
+    ],
+    "HIT_body": [
+      0.0,
+      0.89,
+      -0.0
+    ]
+  },
+  "socket_warnings": [],
   "materials": [
     "smiler_glow",
     "smiler_void"

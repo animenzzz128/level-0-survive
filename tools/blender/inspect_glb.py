@@ -7,6 +7,7 @@ docs/design/art/model-contract.md without opening Blender.
 """
 import json
 import pathlib
+import struct
 import sys
 
 import bpy
@@ -71,6 +72,51 @@ for o in MODEL:
     if o.parent is None:
         report['top_level_bounds'][o.name] = bounds(descendants(o))
 report['triangles_total'] = total_tris
+
+
+def rest_sockets(glb_path):
+    """Rest-pose positions of HIT_*, SOCKET_* and JS_CAM, read from the file itself (three.js axes: +Y up, +Z front).
+
+    Read from the glTF node transforms, not from the re-imported scene: the importer leaves an animation frame
+    applied, and an error in how the build script parented a socket shows up here as it will in the game.
+    """
+    data = glb_path.read_bytes()
+    length = struct.unpack_from('<I', data, 12)[0]
+    nodes = json.loads(data[20:20 + length])['nodes']
+    parent = {c: i for i, n in enumerate(nodes) for c in n.get('children', [])}
+
+    def local(n):
+        t = n.get('translation', [0, 0, 0])
+        x, y, z, w = n.get('rotation', [0, 0, 0, 1])
+        sx, sy, sz = n.get('scale', [1, 1, 1])
+        r = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+             [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+             [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]
+        return [[r[i][0] * sx, r[i][1] * sy, r[i][2] * sz, t[i]] for i in range(3)] + [[0, 0, 0, 1]]
+
+    def world(i):
+        m = local(nodes[i])
+        while i in parent:
+            i = parent[i]
+            pm = local(nodes[i])
+            m = [[sum(pm[r][k] * m[k][c] for k in range(4)) for c in range(4)] for r in range(4)]
+        return m
+
+    out = {}
+    for i, n in enumerate(nodes):
+        name = n.get('name', '')
+        if name.startswith(('HIT_', 'SOCKET_')) or name == 'JS_CAM':
+            m = world(i)
+            out[name] = [round(m[r][3], 4) for r in range(3)]
+    return out
+
+
+report['rest_sockets'] = rest_sockets(path)
+# A socket exactly at the model origin is almost always a parenting mistake in the build script.
+report['socket_warnings'] = [f'{k} is at the origin' for k, v in report['rest_sockets'].items()
+                             if max(abs(c) for c in v) < 1e-3]
+for warning in report['socket_warnings']:
+    print('WARNING', warning)
 report['materials'] = sorted(m.name for m in bpy.data.materials)
 
 out = common.REPO / 'tools' / 'blender' / 'reports' / (path.stem + '.json')
