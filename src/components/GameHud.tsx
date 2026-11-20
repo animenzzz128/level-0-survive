@@ -694,6 +694,14 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
+      {/* END OF THE DEATH SCENE */}
+      {hud.phase === 'jumpscare' && hud.signalLost && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black">
+          {!hud.reduceFlashing && <div className="signal-static absolute inset-0" />}
+          <span className="relative font-mono-hud text-2xl tracking-[0.4em] text-[#d8d2bf]">SIGNAL LOST</span>
+        </div>
+      )}
+
       {/* GAME OVER / VICTORY OVERLAY */}
       {(hud.phase === 'gameover' || hud.phase === 'victory') && (
         <div className="pointer-events-auto relative z-20 flex h-full w-full items-center justify-center bg-[#090805]/82 p-6">

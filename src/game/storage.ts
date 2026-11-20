@@ -27,6 +27,8 @@ export interface GameSettings {
   reduceMotion: boolean;
   /** Smooth light flicker, no flashlight stutter or muzzle light, softer damage flash. */
   reduceFlashing: boolean;
+  /** The killer's death scene: full, reduced (no flashes or camera whip, quieter) or off. */
+  jumpscares: JumpscareMode;
   /** Keyboard key per action (KeyboardEvent.code; '' = unbound). */
   bindings: KeyBindings;
   /** Press once to aim / sprint / crouch and again to stop, instead of holding the key. */
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   shakeStrength: 0.75,
   reduceMotion: false,
   reduceFlashing: false,
+  jumpscares: 'full',
   bindings: { ...DEFAULT_BINDINGS },
   aimToggle: false,
   sprintToggle: false,
@@ -64,6 +67,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
 };
 
 export type RunMode = 'random' | 'daily';
+
+export type JumpscareMode = 'full' | 'reduced' | 'off';
+export const JUMPSCARE_MODES: readonly JumpscareMode[] = ['full', 'reduced', 'off'];
 
 export interface RunRecord {
   bestTime: number | null;
@@ -139,6 +145,9 @@ export function sanitizeSettings(raw: unknown): GameSettings {
     shakeStrength: clampNumber(r.shakeStrength, L.shakeStrength.min, L.shakeStrength.max, DEFAULT_SETTINGS.shakeStrength),
     reduceMotion: typeof r.reduceMotion === 'boolean' ? r.reduceMotion : DEFAULT_SETTINGS.reduceMotion,
     reduceFlashing: typeof r.reduceFlashing === 'boolean' ? r.reduceFlashing : DEFAULT_SETTINGS.reduceFlashing,
+    jumpscares: JUMPSCARE_MODES.includes(r.jumpscares as JumpscareMode)
+      ? (r.jumpscares as JumpscareMode)
+      : DEFAULT_SETTINGS.jumpscares,
     bindings: sanitizeBindings(r.bindings),
     aimToggle: typeof r.aimToggle === 'boolean' ? r.aimToggle : DEFAULT_SETTINGS.aimToggle,
     sprintToggle: typeof r.sprintToggle === 'boolean' ? r.sprintToggle : DEFAULT_SETTINGS.sprintToggle,

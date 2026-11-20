@@ -260,6 +260,7 @@ export class HorrorAudioEngine {
   private readonly listenerPos: Point3 = { x: 0, y: 0, z: 0 };
   private reverbNode: ConvolverNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
+  private jumpscareDuck: 'none' | 'duck' | 'silence' = 'none';
   private humOsc1: OscillatorNode | null = null;
   private humOsc2: OscillatorNode | null = null;
   private humGain: GainNode | null = null;
@@ -347,6 +348,13 @@ export class HorrorAudioEngine {
   }
 
   /** Paused: the world and the player's own sounds go quiet (tape hiss too), a little hum stays; UI unchanged. */
+  /** Death scene: everything but the killer's own sound and the UI drops away ('silence' cuts the hum too). */
+  public setJumpscare(mode: 'none' | 'duck' | 'silence'): void {
+    if (this.jumpscareDuck === mode) return;
+    this.jumpscareDuck = mode;
+    this.applyBusLevels();
+  }
+
   public setPaused(paused: boolean): void {
     if (this.paused === paused) return;
     this.paused = paused;
@@ -357,9 +365,10 @@ export class HorrorAudioEngine {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     const set = (bus: GainNode | null, level: number) => bus?.gain.setTargetAtTime(level, now, 0.08);
-    set(this.ambientBus, BUS_LEVELS.ambient * (this.paused ? 0.3 : 1));
+    const duck = this.jumpscareDuck;
+    set(this.ambientBus, BUS_LEVELS.ambient * (this.paused ? 0.3 : 1) * (duck === 'silence' ? 0 : duck === 'duck' ? 0.35 : 1));
     set(this.sfxBus, this.paused ? 0 : BUS_LEVELS.sfx);
-    set(this.worldBus, this.paused ? 0 : BUS_LEVELS.world);
+    set(this.worldBus, this.paused ? 0 : BUS_LEVELS.world * (duck === 'none' ? 1 : 0.15));
     set(this.uiBus, BUS_LEVELS.ui);
   }
 
@@ -743,6 +752,136 @@ export class HorrorAudioEngine {
       band.connect(g);
       g.connect(this.sfxBus);
       src.start(now + offset, Math.random() * 1.2, length + 0.05);
+    }
+  }
+
+  /**
+   * Each killer's own sound for its death scene (art bible section 5), timed to its jumpscare clip.
+   * gain 0.5 is the reduced version (-6 dB).
+   */
+  public playJumpscare(kind: EntityArchetype, gain: number): void {
+    if (!this.ctx || this.ctx.state === 'closed' || !this.sfxBus || !this.reverbNode || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const noiseBuffer = this.noiseBuffer;
+    const out = ctx.createGain();
+    out.gain.value = gain;
+    out.connect(this.sfxBus);
+    const send = ctx.createGain();
+    send.gain.value = 0.3;
+    out.connect(send);
+    send.connect(this.reverbNode);
+
+    const envelope = (g: GainNode, start: number, length: number, peak: number, attack: number) => {
+      g.gain.setValueAtTime(0.0001, now + start);
+      g.gain.linearRampToValueAtTime(peak, now + start + attack);
+      g.gain.setValueAtTime(peak, now + start + Math.max(attack, length * 0.8));
+      g.gain.exponentialRampToValueAtTime(0.0001, now + start + length);
+    };
+    const noise = (start: number, length: number, type: BiquadFilterType, freq: number, q: number, peak: number, attack = 0.004) => {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      envelope(g, start, length, peak, attack);
+      src.connect(f);
+      f.connect(g);
+      g.connect(out);
+      src.start(now + start, length < 0.9 ? Math.random() : 0, length + 0.05);
+      return f;
+    };
+    const tone = (start: number, length: number, type: OscillatorType, from: number, to: number, peak: number, attack = 0.01) => {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(from, now + start);
+      osc.frequency.exponentialRampToValueAtTime(to, now + start + length);
+      const g = ctx.createGain();
+      envelope(g, start, length, peak, attack);
+      osc.connect(g);
+      g.connect(out);
+      osc.start(now + start);
+      osc.stop(now + start + length + 0.03);
+      return { osc, g };
+    };
+
+    if (kind === 'howler') {
+      // Clicks coming faster, the claws hitting metal, the starter arcing, then a screech cut short.
+      for (const t of [0, 0.04, 0.07, 0.09, 0.105, 0.115, 0.123, 0.128]) noise(t, 0.014, 'bandpass', 3200, 6, 0.5);
+      tone(0.13, 0.4, 'square', 420, 380, 0.16);
+      tone(0.13, 0.4, 'square', 587, 552, 0.12);
+      noise(0.13, 0.14, 'highpass', 2500, 0.7, 0.55);
+      for (let i = 0; i < 14; i++) {
+        noise(0.33 + Math.random() * 0.45, 0.01 + Math.random() * 0.025, 'bandpass', 4000 + Math.random() * 3000, 3, 0.35 + Math.random() * 0.3);
+      }
+      const screech = tone(0.45, 0.7, 'sawtooth', 900, 1500, 0.22, 0.08);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 28;
+      const depth = ctx.createGain();
+      depth.gain.value = 70;
+      lfo.connect(depth);
+      depth.connect(screech.osc.frequency);
+      lfo.start(now + 0.45);
+      lfo.stop(now + 1.2);
+    } else if (kind === 'smiler') {
+      // The hum has just been cut (setJumpscare 'silence'); a breath in, then a detuned chord that swells and stops.
+      noise(0.2, 0.32, 'bandpass', 900, 0.8, 0.1, 0.25);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(400, now + 0.5);
+      lp.frequency.exponentialRampToValueAtTime(3200, now + 1.25);
+      const chord = ctx.createGain();
+      chord.gain.setValueAtTime(0.0001, now + 0.5);
+      chord.gain.exponentialRampToValueAtTime(0.2, now + 1.25);
+      chord.gain.linearRampToValueAtTime(0.0001, now + 1.29);
+      lp.connect(chord);
+      chord.connect(out);
+      for (const f of [196, 207.6, 293.7, 311.1]) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(f, now + 0.5);
+        osc.frequency.linearRampToValueAtTime(f * 1.04, now + 1.25);
+        osc.connect(lp);
+        osc.start(now + 0.5);
+        osc.stop(now + 1.32);
+      }
+      noise(0.5, 0.78, 'highpass', 3000, 0.7, 0.12, 0.7);
+    } else {
+      // A wet grab, its copy of a voice ("...hello? ...hello?", pitched wrong), skin tearing, one last heartbeat.
+      noise(0, 0.18, 'lowpass', 600, 1, 0.5);
+      noise(0.05, 0.12, 'bandpass', 1800, 4, 0.22);
+      for (const [start, length] of [
+        [0.18, 0.2],
+        [0.42, 0.24],
+      ]) {
+        const src = ctx.createOscillator();
+        src.type = 'sawtooth';
+        src.frequency.setValueAtTime(152, now + start);
+        src.frequency.exponentialRampToValueAtTime(104, now + start + length);
+        const g = ctx.createGain();
+        envelope(g, start, length, 0.22, 0.03);
+        for (const [f1, f2] of [
+          [560, 420],
+          [1150, 820],
+        ]) {
+          const band = ctx.createBiquadFilter();
+          band.type = 'bandpass';
+          band.Q.value = 6;
+          band.frequency.setValueAtTime(f1, now + start);
+          band.frequency.linearRampToValueAtTime(f2, now + start + length);
+          src.connect(band);
+          band.connect(g);
+        }
+        g.connect(out);
+        src.start(now + start);
+        src.stop(now + start + length + 0.03);
+      }
+      const tear = noise(0.6, 0.42, 'bandpass', 500, 2, 0.38, 0.05);
+      tear.frequency.setValueAtTime(500, now + 0.6);
+      tear.frequency.exponentialRampToValueAtTime(2600, now + 1.0);
+      tone(1.3, 0.18, 'sine', 64, 34, 0.6, 0.02);
     }
   }
 

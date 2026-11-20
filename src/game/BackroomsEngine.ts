@@ -48,6 +48,16 @@ const TAPE_LOGS = [
   'If you are hearing this, the door is open, and they know. Do not stop for the water. Not all of it is water.',
 ];
 const TAPE_LOG_CPS = 40;
+const _jsCam = new THREE.Vector3();
+const _jsLook = new THREE.Vector3();
+const _jsSpark = new THREE.Vector3();
+const _jsQuat = new THREE.Quaternion();
+const BASE_EXPOSURE = 1.08;
+const HEMI_INTENSITY = 0.26;
+/** How long "SIGNAL LOST" stays up before the results screen. */
+const SIGNAL_LOST_SECONDS = 0.6;
+/** The death scene can be skipped with any key or click after this long. */
+const JUMPSCARE_SKIP_AFTER = 0.8;
 /** The Blender model for each entity kind (the Skin-Stealer is 'brute' in code). */
 const ENTITY_MODEL: Record<EntityArchetype, ModelId> = {
   howler: 'ent_howler',
@@ -108,6 +118,8 @@ declare global {
         doors: Array<{ x: number; z: number; closed: boolean; broken: boolean }>;
         desks: Array<{ x: number; z: number }>;
         exitPos: { x: number; z: number };
+        jumpscare: { archetype: EntityArchetype; time: number; duration: number; signalLost: boolean } | null;
+        modelsLoaded: string[];
       };
       /** Advance the simulation by `frames` fixed steps (for QA when the page is not animating). */
       step: (frames: number, dt?: number) => void;
@@ -129,6 +141,8 @@ declare global {
       perf: () => PerfReport;
       /** Run `frames` simulated frames back to back, waiting for the GPU after each, and time them. */
       bench: (frames?: number) => BenchReport;
+      /** Have the nearest living entity of this kind land a fatal blow (death scene QA). False if there is none. */
+      killBy: (archetype: EntityArchetype) => boolean;
     };
   }
 }
@@ -248,6 +262,19 @@ export class BackroomsEngine {
   private pooledLights: THREE.PointLight[] = [];
 
   private flashlight!: THREE.SpotLight;
+  private hemiLight!: THREE.HemisphereLight;
+  // The killer's death scene (phase 'jumpscare'); see startJumpscare.
+  private jumpscare: {
+    entity: BackroomsEntity;
+    time: number;
+    duration: number;
+    reduced: boolean;
+    fromPos: THREE.Vector3;
+    fromQuat: THREE.Quaternion;
+    /** Scene time when the static started; -1 while the clip plays. */
+    signalLostAt: number;
+  } | null = null;
+  private signalLost = false;
   private flashlightTarget = new THREE.Object3D();
   private flashlightCone!: THREE.Mesh;
   private dustPoints!: THREE.Points;
@@ -491,7 +518,7 @@ export class BackroomsEngine {
     this.gpuTimer = GpuTimer.create(this.renderer.getContext());
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = BASE_EXPOSURE;
     this.renderer.setPixelRatio(
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2),
     );
@@ -530,8 +557,9 @@ export class BackroomsEngine {
     }
 
     // Deeper atmospheric fill for tense Backrooms contrast
-    const hemi = new THREE.HemisphereLight(0xb8a564, 0x1a160c, 0.26);
+    const hemi = new THREE.HemisphereLight(0xb8a564, 0x1a160c, HEMI_INTENSITY);
     this.scene.add(hemi);
+    this.hemiLight = hemi;
 
     // Pooled ceiling point lights (closest 8 fixtures to camera)
     const lightCount = 8;
@@ -1739,15 +1767,156 @@ export class BackroomsEngine {
     }
     if (this.health <= 0) {
       this.killedBy = source?.archetype ?? null;
-      this.audio.playDeathSting();
-      this.phase = 'gameover';
       this.clearTransientInputs();
-      if (document.pointerLockElement === this.renderer.domElement) {
-        document.exitPointerLock();
+      if (!(source && this.startJumpscare(source))) {
+        this.audio.playDeathSting();
+        this.finishDeath();
       }
-      this.emitHud();
     }
   }
+
+  /** The results screen, after the death scene or straight away. */
+  private finishDeath(): void {
+    this.resetJumpscareEffects();
+    this.phase = 'gameover';
+    this.clearTransientInputs();
+    if (document.pointerLockElement === this.renderer.domElement) {
+      document.exitPointerLock();
+    }
+    this.emitHud();
+  }
+
+  private resetJumpscareEffects(): void {
+    this.jumpscare = null;
+    this.signalLost = false;
+    this.renderer.toneMappingExposure = BASE_EXPOSURE;
+    this.hemiLight.intensity = HEMI_INTENSITY;
+    if (this.glowInstanced) this.glowInstanced.visible = true;
+    if (this.lightPanelInstanced) this.lightPanelInstanced.visible = true;
+    this.audio.setJumpscare('none');
+  }
+
+  /**
+   * The killer's death scene (art bible section 5). It is moved so its JS_CAM socket sits at the player's eye and
+   * plays its `jumpscare` clip while the camera is handed over to that socket. False when the setting is off or
+   * the killer has no model (the caller then goes straight to the results).
+   */
+  private startJumpscare(entity: BackroomsEntity): boolean {
+    const setting = this.settings.jumpscares;
+    if (setting === 'off' || !entity.hasModel) return false;
+    entity.faceWorldPoint(this.camera.position.x, this.camera.position.z);
+    const duration = entity.beginJumpscare();
+    if (duration <= 0) return false;
+    if (entity.socketWorld('JS_CAM', _jsCam)) {
+      entity.position.x += this.camera.position.x - _jsCam.x;
+      entity.position.z += this.camera.position.z - _jsCam.z;
+    }
+    this.jumpscare = {
+      entity,
+      time: 0,
+      duration,
+      reduced: setting === 'reduced',
+      fromPos: this.camera.position.clone(),
+      fromQuat: this.camera.quaternion.clone(),
+      signalLostAt: -1,
+    };
+    this.phase = 'jumpscare';
+    this.weapon.root.visible = false;
+    this.damageFlash = 0;
+    this.hitIndicator = 0;
+    this.audio.setJumpscare(entity.archetype === 'smiler' ? 'silence' : 'duck');
+    this.audio.playJumpscare(entity.archetype, setting === 'reduced' ? 0.5 : 1);
+    this.emitHud();
+    return true;
+  }
+
+  /** Any key or click after the first moments skips to the end of the death scene. */
+  private skipJumpscare(): void {
+    const js = this.jumpscare;
+    if (js && js.signalLostAt < 0 && js.time >= JUMPSCARE_SKIP_AFTER) js.time = js.duration;
+  }
+
+  private updateJumpscare(delta: number, timeSec: number): void {
+    this.audio.updateAmbient(delta, 99, false);
+    const js = this.jumpscare;
+    if (!js) return;
+    if (js.signalLostAt >= 0) {
+      if (js.time - js.signalLostAt >= SIGNAL_LOST_SECONDS) this.finishDeath();
+      else js.time += delta;
+      return;
+    }
+    if (js.time >= js.duration) {
+      // The tape tears: static and SIGNAL LOST, then the results.
+      js.signalLostAt = js.time;
+      this.signalLost = true;
+      this.audio.playDeathSting();
+      this.emitHud();
+      return;
+    }
+    js.time += delta;
+    const t = js.time;
+    const kind = js.entity.archetype;
+    const calm = js.reduced || this.settings.reduceMotion; // no camera whip, tilt or jolt
+    const noFlash = js.reduced || this.settings.reduceFlashing;
+    js.entity.updateJumpscare(delta);
+
+    // Camera: from where the player was looking to the killer's JS_CAM, aimed at its mouth.
+    if (!js.entity.socketWorld('JS_CAM', _jsCam)) _jsCam.copy(js.fromPos);
+    if (!js.entity.socketWorld('SOCKET_mouth', _jsLook)) js.entity.socketWorld('HIT_head', _jsLook);
+    if (kind === 'smiler') _jsCam.lerp(_jsLook, 0.35 * THREE.MathUtils.smoothstep(t, 0.5, 1.2));
+    // Skin-Stealer: pulled into the hole in its face at the end.
+    if (kind === 'brute') _jsCam.lerp(_jsLook, 0.8 * THREE.MathUtils.smoothstep(t, js.duration - 0.5, js.duration));
+    const whip = calm ? 1 : THREE.MathUtils.smoothstep(t, 0, 0.13);
+    this.camera.position.lerpVectors(js.fromPos, _jsCam, whip);
+    this.camera.lookAt(_jsLook);
+    _jsQuat.copy(this.camera.quaternion);
+    this.camera.quaternion.slerpQuaternions(js.fromQuat, _jsQuat, whip);
+    if (!calm) {
+      const shake = this.settings.shakeStrength;
+      if (kind === 'brute') this.camera.rotateZ(THREE.MathUtils.degToRad(8) * THREE.MathUtils.smoothstep(t, 0, 0.15));
+      if (kind === 'howler') {
+        // The claws hit either side of the lens; the camera jolts back.
+        this.camera.translateZ(0.06 * shake * Math.max(0, 1 - Math.abs(t - 0.17) / 0.08));
+        if (t > 0.33 && t < 0.8) this.camera.translateX((Math.random() - 0.5) * 0.02 * shake);
+      }
+    }
+
+    // Lights.
+    let exposure = BASE_EXPOSURE;
+    if (kind === 'smiler') {
+      // Lights out: every lamp and the flashlight die at once; only its face still glows.
+      const on = 1 - THREE.MathUtils.smoothstep(t, 0, 0.12);
+      this.flashlight.intensity = this.flashlightOn ? 6.2 * on : 0;
+      this.hemiLight.intensity = HEMI_INTENSITY * on;
+      this.updateLights(timeSec);
+      for (const pl of this.pooledLights) pl.intensity *= on;
+      if (this.glowInstanced) this.glowInstanced.visible = on > 0;
+      if (this.lightPanelInstanced) this.lightPanelInstanced.visible = on > 0;
+      // Teeth fill the screen: a white flash, or a fade to black with reduced flashing.
+      const end = THREE.MathUtils.smoothstep(t, js.duration - 0.15, js.duration);
+      exposure = noFlash ? BASE_EXPOSURE * (1 - end) : BASE_EXPOSURE * (1 + 3 * end);
+    } else {
+      this.updateLights(timeSec);
+      if (kind === 'howler' && js.entity.socketWorld('SOCKET_mouth', _jsSpark)) {
+        // The starter deep in its throat fires twice (a steady dim glow with reduced flashing).
+        const power = noFlash
+          ? t > 0.33 && t < 0.8
+            ? 0.8
+            : 0
+          : (t > 0.42 && t < 0.49) || (t > 0.58 && t < 0.65)
+            ? 6
+            : 0;
+        if (power > 0) {
+          const pl = this.pooledLights[this.pooledLights.length - 1];
+          pl.position.copy(_jsSpark);
+          this.setPooledLight(pl, 0xe4d4ff, power, 4, 2);
+        }
+      }
+      if (kind === 'brute') exposure = BASE_EXPOSURE * (1 - THREE.MathUtils.smoothstep(t, js.duration - 0.3, js.duration));
+    }
+    this.renderer.toneMappingExposure = exposure;
+  }
+
 
   private addTrauma(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
@@ -1909,6 +2078,7 @@ export class BackroomsEngine {
     this.trauma = 0;
     this.hitIndicator = 0;
     this.killedBy = null;
+    this.resetJumpscareEffects();
     this.audio.setLowHealth(0);
     this.swayX = 0;
     this.swayY = 0;
@@ -2086,6 +2256,10 @@ export class BackroomsEngine {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.phase === 'jumpscare') {
+      this.skipJumpscare();
+      return;
+    }
     if (e.code === 'Escape') {
       if (this.phase === 'playing') {
         this.pauseGame();
@@ -2173,6 +2347,10 @@ export class BackroomsEngine {
   }
 
   private onMouseDown = (e: MouseEvent): void => {
+    if (this.phase === 'jumpscare') {
+      this.skipJumpscare();
+      return;
+    }
     if (this.phase !== 'playing') return;
     this.audio.init();
 
@@ -2435,7 +2613,7 @@ export class BackroomsEngine {
 
     this.updateScene(delta, now * 0.001);
     // Paused and results screens show a still frame: draw it once, not 60 times a second.
-    const live = this.phase === 'playing' || this.phase === 'title';
+    const live = this.phase === 'playing' || this.phase === 'title' || this.phase === 'jumpscare';
     if (live || this.renderRequested || this.phase !== this.renderedPhase) {
       this.renderFrame();
       this.renderRequested = false;
@@ -2544,6 +2722,11 @@ export class BackroomsEngine {
       this.flashlightCone.visible = false;
       this.updateLights(timeSec);
       this.audio.updateAmbient(delta, 99, false);
+      return;
+    }
+
+    if (this.phase === 'jumpscare') {
+      this.updateJumpscare(delta, timeSec);
       return;
     }
 
@@ -3229,6 +3412,7 @@ export class BackroomsEngine {
       damageDirectionDeg: this.hitIndicator > 0 ? this.hitBearingDeg() : null,
       damageDirectionAlpha: this.hitIndicator,
       killedBy: this.killedBy,
+      signalLost: this.signalLost,
       reduceFlashing: this.settings.reduceFlashing,
       hitmarkerState: this.hitmarkerState,
       crosshairSpread: this.crosshairSpread,
@@ -3296,7 +3480,32 @@ export class BackroomsEngine {
         doors: this.doors.map((d) => ({ x: d.x, z: d.z, closed: d.closed, broken: d.broken })),
         desks: this.level.desks.map((d) => ({ x: d.x, z: d.z })),
         exitPos: { x: this.level.exitPos.x, z: this.level.exitPos.z },
+        jumpscare: this.jumpscare
+          ? {
+              archetype: this.jumpscare.entity.archetype,
+              time: this.jumpscare.time,
+              duration: this.jumpscare.duration,
+              signalLost: this.signalLost,
+            }
+          : null,
+        modelsLoaded: this.assets.loadedIds,
       }),
+      killBy: (archetype: EntityArchetype) => {
+        if (this.phase !== 'playing') return false;
+        let best: BackroomsEntity | null = null;
+        let bestDist = Infinity;
+        for (const e of this.entities) {
+          if (e.archetype !== archetype || !e.alive) continue;
+          const d = Math.hypot(e.position.x - this.playerPos.x, e.position.z - this.playerPos.z);
+          if (d < bestDist) {
+            best = e;
+            bestDist = d;
+          }
+        }
+        if (!best) return false;
+        this.damagePlayer(this.health + 1, best);
+        return true;
+      },
       step: (frames: number, dt = 1 / 30) => {
         let t = performance.now() * 0.001;
         for (let i = 0; i < frames; i++) {
