@@ -623,10 +623,19 @@ export class BackroomsEngine {
     if (this.disposed || this.assets.loadedIds.length === 0) return;
     const pistol = this.assets.instance('vm_pistol');
     if (pistol) this.weapon.setModel(pistol);
-    if (this.phase === 'title') {
-      this.buildLevel(202611, this.difficulty);
-      this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+    if (this.phase === 'title') this.buildLevel(202611, this.difficulty);
+    // Compile the skinned, morphing entity shaders now, so the first encounter in a run does not hitch.
+    const warm = new THREE.Group();
+    warm.position.y = -100; // out of sight under the floor while it waits for the compile
+    for (const id of Object.values(ENTITY_MODEL)) {
+      const inst = this.assets.instance(id);
+      if (inst) warm.add(inst.root);
     }
+    this.scene.add(warm);
+    this.renderer
+      .compileAsync(this.scene, this.camera)
+      .catch(() => {})
+      .finally(() => this.scene.remove(warm));
     this.renderRequested = true;
     this.emitHud();
   }
