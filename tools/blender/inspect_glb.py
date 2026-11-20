@@ -23,6 +23,11 @@ scene = bpy.context.scene
 BONE_SHAPES = {pb.custom_shape.name for o in scene.objects if o.type == 'ARMATURE'
                for pb in o.pose.bones if pb.custom_shape is not None}
 MODEL = [o for o in scene.objects if o.name not in BONE_SHAPES]
+# The importer leaves each armature posed at frame 0 of its first clip; measure the rest pose instead.
+for o in scene.objects:
+    if o.type == 'ARMATURE':
+        o.data.pose_position = 'REST'
+bpy.context.view_layer.update()
 dg = bpy.context.evaluated_depsgraph_get()
 
 

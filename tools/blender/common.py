@@ -9,6 +9,7 @@ import sys
 
 import bpy
 import numpy as np
+from mathutils import Matrix
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 MODELS = REPO / 'public' / 'assets' / 'models'
@@ -97,7 +98,7 @@ def empty(name, location=(0, 0, 0), parent=None, parent_bone=None, size=0.05):
     bpy.context.scene.collection.objects.link(e)
     e.location = location
     if parent is not None:
-        world = e.matrix_world.copy()
+        world = Matrix.Translation(location)
         e.parent = parent
         if parent_bone:
             e.parent_type = 'BONE'
