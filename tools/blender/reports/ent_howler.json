@@ -1,0 +1,217 @@
+{
+  "file": "ent_howler.glb",
+  "bytes": 1508336,
+  "nodes": [
+    {
+      "name": "howler_rig",
+      "type": "ARMATURE",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "howler_body",
+      "type": "MESH",
+      "parent": "howler_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "JS_CAM",
+      "type": "EMPTY",
+      "parent": "howler_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "HIT_head",
+      "type": "EMPTY",
+      "parent": "howler_rig",
+      "parent_bone": "head"
+    },
+    {
+      "name": "SOCKET_mouth",
+      "type": "EMPTY",
+      "parent": "howler_rig",
+      "parent_bone": "head"
+    },
+    {
+      "name": "HIT_body",
+      "type": "EMPTY",
+      "parent": "howler_rig",
+      "parent_bone": "spine_01"
+    }
+  ],
+  "meshes": [
+    {
+      "name": "howler_body",
+      "triangles": 11569,
+      "materials": [
+        "howler_body",
+        "howler_starter"
+      ],
+      "skinned": true,
+      "shape_keys": []
+    }
+  ],
+  "armatures": [
+    {
+      "name": "howler_rig",
+      "bones": [
+        "root",
+        "pelvis",
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "neck_01",
+        "neck_02",
+        "head",
+        "jaw_L",
+        "jaw_R",
+        "sensor_L_01",
+        "sensor_L_02",
+        "sensor_R_01",
+        "sensor_R_02",
+        "clavicle_L",
+        "upperarm_L",
+        "forearm_L",
+        "hand_L",
+        "claw_L_01",
+        "claw_L_02",
+        "claw_L_03",
+        "clavicle_R",
+        "upperarm_R",
+        "forearm_R",
+        "hand_R",
+        "claw_R_01",
+        "claw_R_02",
+        "claw_R_03",
+        "cable_tail_01",
+        "cable_tail_02",
+        "cable_tail_03",
+        "thigh_L",
+        "shin_L",
+        "foot_L",
+        "toe_L",
+        "thigh_R",
+        "shin_R",
+        "foot_R",
+        "toe_R"
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "attack_recover",
+      "frames": [
+        0.0,
+        15.0
+      ]
+    },
+    {
+      "name": "attack_strike",
+      "frames": [
+        0.0,
+        7.0
+      ]
+    },
+    {
+      "name": "attack_windup",
+      "frames": [
+        0.0,
+        9.0
+      ]
+    },
+    {
+      "name": "death",
+      "frames": [
+        0.0,
+        24.0
+      ]
+    },
+    {
+      "name": "idle_listen",
+      "frames": [
+        0.0,
+        72.0
+      ]
+    },
+    {
+      "name": "jumpscare",
+      "frames": [
+        0.0,
+        36.0
+      ]
+    },
+    {
+      "name": "lope",
+      "frames": [
+        0.0,
+        17.0
+      ]
+    },
+    {
+      "name": "notice",
+      "frames": [
+        0.0,
+        12.0
+      ]
+    },
+    {
+      "name": "run_search",
+      "frames": [
+        0.0,
+        20.0
+      ]
+    },
+    {
+      "name": "screech",
+      "frames": [
+        0.0,
+        18.0
+      ]
+    },
+    {
+      "name": "stagger",
+      "frames": [
+        0.0,
+        15.0
+      ]
+    },
+    {
+      "name": "stalk",
+      "frames": [
+        0.0,
+        22.0
+      ]
+    },
+    {
+      "name": "walk",
+      "frames": [
+        0.0,
+        26.0
+      ]
+    }
+  ],
+  "top_level_bounds": {
+    "howler_rig": {
+      "min": [
+        -0.5537,
+        -1.5602,
+        -0.0002
+      ],
+      "max": [
+        0.5525,
+        1.3594,
+        2.0521
+      ],
+      "size": [
+        1.1061,
+        2.9196,
+        2.0523
+      ]
+    }
+  },
+  "triangles_total": 11569,
+  "materials": [
+    "howler_body",
+    "howler_starter"
+  ]
+}
