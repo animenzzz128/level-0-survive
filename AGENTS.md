@@ -54,6 +54,7 @@ CI: `.github/workflows/pages.yml`, job `build`, runs install, lint, test and bui
 | `teleport(x, z)`, `teleportToDoor(i)`, `teleportNearEntityByType(type)`, `teleportNearTape()`, `teleportToExitUnlocked()` | Jump to a situation |
 | `lookAtWorld(x, y, z)`, `setCrouch(on)`, `interact()` | Act |
 | `perf()` | Frame measurement |
+| `killBy(type)` | The nearest entity of that type lands a fatal blow (death scene QA); `getState().jumpscare` follows it |
 
 ## Feature map
 
@@ -70,9 +71,14 @@ CI: `.github/workflows/pages.yml`, job `build`, runs install, lint, test and bui
 | Saves, settings, records | `src/game/storage.ts` |
 | Textures and sound (all generated in code) | `src/game/textures.ts`, `src/game/audio.ts` |
 | Quality levels, light pool, measurement | `src/game/perf.ts`, `meshMerge.ts` |
+| 3D models: loading, props, entity clips, death scenes, pistol | `src/game/assets.ts` (loader), `entities.ts` (`useModel`, `animateModel`), `BackroomsEngine.ts` (`startJumpscare`), `weapon.ts` (`setModel`) |
+| Model sources (Blender scripts, reports, previews) | `tools/blender/`, interface in [docs/design/art/model-contract.md](docs/design/art/model-contract.md) |
 
 ## Known traps
 
 - `metadata.json` and the `GEMINI_API_KEY` in `.env.example` are AI Studio leftovers; the game makes no Gemini calls.
 - Never toggle a light's `visible` during a run. three.js recompiles every lit shader when the light count changes (the old tape-pickup hitch). Change `intensity` instead.
 - Recoil is an offset that decays, not a change to the look angle; keep it that way.
+- The `.glb` files in `public/assets/models/` are build output of `tools/blender/build_*.py`. Change the script and
+  re-run it; never edit a `.glb` by hand. Every model is optional: the procedural placeholder stays as the fallback.
+- Never run `mergeStaticMeshes` on model meshes: it disposes geometry the asset cache still shares.
