@@ -2,17 +2,20 @@
   "schema_version": 1,
   "art_direction_brief": "docs/design/art/art-bible.md",
   "blueprints": "docs/design/art/blueprints/",
-  "notes": "All entries planned. Keep the procedural placeholder until the glb passes art-bible.md section 3.8 checks.",
+  "notes": [
+    "All entries planned. Keep the procedural placeholder until the glb passes art-bible.md section 3.8 checks.",
+    "2026-11-20: v1 models built by scripts in tools/blender (Blender 4.5, Claude Code under Jacky Yao's direction) and wired into the game; every model is optional and the procedural placeholder remains the fallback. Textures tex_* and decal_set are still the procedural ones."
+  ],
   "assets": [
     {
       "id": "ent_skin_stealer",
       "role": "entity: mimic that hides as Almond Water",
       "priority": "P0 (do first)",
       "path": "public/assets/models/ent_skin_stealer.glb",
-      "status": "concept approved with notes: sucker seams not stitches, raised right shoulder, sculpt a generic stolen face",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved with notes: sucker seams not stitches, raised right shoulder, sculpt a generic stolen face",
       "placeholder_in_game": "procedural primitives in entities.ts (buildBruteMesh)",
       "technical": {
-        "format": "glb (meshopt, textures webp/ktx2)",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles_lod0_lod1": "12-16k / 7k",
         "materials": 2,
         "textures": "skin 2048 BaseColor+Normal+ORM, slime 512",
@@ -95,17 +98,67 @@
         "docs/design/art/concepts/skin-stealer/C_detail.webp",
         "docs/design/art/concepts/skin-stealer/D_jumpscare_wear_you.webp",
         "docs/design/art/concepts/skin-stealer/E_reveal.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/ent_skin_stealer.glb",
+        "source": "tools/blender/build_skin_stealer.py",
+        "report": "tools/blender/reports/ent_skin_stealer.json",
+        "triangles": 14667,
+        "bytes": 2033408,
+        "clips": [
+          "attack_recover",
+          "attack_strike",
+          "attack_windup",
+          "death",
+          "disguised_shudder",
+          "idle",
+          "jumpscare",
+          "lurch",
+          "mimic_tilt",
+          "reveal",
+          "stagger",
+          "stalk",
+          "walk_limp"
+        ],
+        "sockets": {
+          "JS_CAM": [
+            0.0,
+            2.03,
+            0.78
+          ],
+          "HIT_head": [
+            0.0,
+            2.02,
+            0.105
+          ],
+          "SOCKET_mouth": [
+            -0.0013,
+            2.0305,
+            0.205
+          ],
+          "SOCKET_hand_R": [
+            -0.4268,
+            0.8278,
+            0.0005
+          ],
+          "HIT_body": [
+            -0.0,
+            1.035,
+            -0.02
+          ]
+        }
+      },
+      "ai_generated": true
     },
     {
       "id": "ent_howler",
       "role": "entity: blind sound hunter",
       "priority": "P0",
       "path": "public/assets/models/ent_howler.glb",
-      "status": "concept approved with notes: reverse knees, hunched stance, 3 claws",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved with notes: reverse knees, hunched stance, 3 claws",
       "placeholder_in_game": "procedural primitives in entities.ts (buildHowlerMesh)",
       "technical": {
-        "format": "glb (meshopt, textures webp/ktx2)",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles_lod0_lod1": "9-12k / 5k",
         "materials": "1 (+1 optional emissive)",
         "textures": "body 2048 BaseColor+Normal+ORM",
@@ -186,17 +239,62 @@
         "docs/design/art/concepts/howler/B_turnaround.webp",
         "docs/design/art/concepts/howler/C_detail.webp",
         "docs/design/art/concepts/howler/D_jumpscare_short_circuit.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/ent_howler.glb",
+        "source": "tools/blender/build_howler.py",
+        "report": "tools/blender/reports/ent_howler.json",
+        "triangles": 11569,
+        "bytes": 1508336,
+        "clips": [
+          "attack_recover",
+          "attack_strike",
+          "attack_windup",
+          "death",
+          "idle_listen",
+          "jumpscare",
+          "lope",
+          "notice",
+          "run_search",
+          "screech",
+          "stagger",
+          "stalk",
+          "walk"
+        ],
+        "sockets": {
+          "HIT_head": [
+            0.0,
+            2.15,
+            0.2925
+          ],
+          "SOCKET_mouth": [
+            0.0,
+            2.165,
+            0.3752
+          ],
+          "HIT_body": [
+            0.0,
+            1.0925,
+            0.08
+          ],
+          "JS_CAM": [
+            0.0,
+            1.7,
+            1.05
+          ]
+        }
+      },
+      "ai_generated": true
     },
     {
       "id": "ent_smiler",
       "role": "entity: face in the dark, banished by the flashlight",
       "priority": "P0",
       "path": "public/assets/models/ent_smiler.glb",
-      "status": "concept approved with notes: needle teeth from B everywhere, grin wider than the head",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved with notes: needle teeth from B everywhere, grin wider than the head",
       "placeholder_in_game": "procedural primitives + canvas face in entities.ts (buildSmilerMesh)",
       "technical": {
-        "format": "glb (meshopt, textures webp/ktx2)",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles_lod0_lod1": "5-8k / 3k",
         "materials": 2,
         "textures": "void body 1024, face 1024 with alpha",
@@ -272,17 +370,64 @@
         "docs/design/art/concepts/smiler/A_hero.webp",
         "docs/design/art/concepts/smiler/B_turnaround.webp",
         "docs/design/art/concepts/smiler/D_jumpscare_lights_out.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/ent_smiler.glb",
+        "source": "tools/blender/build_smiler.py",
+        "report": "tools/blender/reports/ent_smiler.json",
+        "triangles": 7002,
+        "bytes": 1256340,
+        "clips": [
+          "attack_recover",
+          "attack_strike",
+          "attack_windup",
+          "banish",
+          "glide",
+          "glide_hunt",
+          "hover_idle",
+          "jumpscare",
+          "lit_recoil",
+          "notice"
+        ],
+        "sockets": {
+          "JS_CAM": [
+            0.0,
+            1.95,
+            0.83
+          ],
+          "HIT_head": [
+            0.0,
+            1.88,
+            -0.0
+          ],
+          "SOCKET_eyes": [
+            0.0,
+            2.03,
+            0.23
+          ],
+          "SOCKET_mouth": [
+            0.0,
+            1.86,
+            0.28
+          ],
+          "HIT_body": [
+            0.0,
+            0.89,
+            -0.0
+          ]
+        }
+      },
+      "ai_generated": true
     },
     {
       "id": "vm_pistol",
       "role": "first-person suppressed 9 mm with arms",
       "priority": "P1",
       "path": "public/assets/models/vm_pistol.glb",
-      "status": "concept: redo the pistol (too close to a real commercial pistol); hands approved",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept: redo the pistol (too close to a real commercial pistol); hands approved",
       "placeholder_in_game": "procedural primitives in weapon.ts",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "gun 8-10k + arms 6-8k",
         "materials": 2,
         "textures": "2048 each",
@@ -344,17 +489,49 @@
       },
       "concepts": [
         "docs/design/art/concepts/viewmodel/pistol_and_hands.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/vm_pistol.glb",
+        "source": "tools/blender/build_viewmodel.py",
+        "report": "tools/blender/reports/vm_pistol.json",
+        "triangles": 12118,
+        "bytes": 843852,
+        "clips": [
+          "empty",
+          "fire",
+          "idle",
+          "reload",
+          "sprint"
+        ],
+        "sockets": {
+          "SOCKET_eject": [
+            0.017,
+            0.0345,
+            0.014
+          ],
+          "SOCKET_light": [
+            0.0,
+            -0.051,
+            -0.164
+          ],
+          "SOCKET_muzzle": [
+            0.0,
+            0.02,
+            -0.302
+          ]
+        }
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_almond_water",
       "role": "pickup: health (+ Skin-Stealer disguise variant)",
       "priority": "P1",
-      "path": "public/assets/models/prop_almond_water.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "cylinders in BackroomsEngine.buildPickups",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~600",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -388,17 +565,25 @@
       "concepts": [
         "docs/design/art/concepts/props/pickups.webp",
         "docs/design/art/concepts/skin-stealer/E_reveal.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_almond_water",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 864
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_vhs",
       "role": "objective: VHS tape on a table",
       "priority": "P1",
-      "path": "public/assets/models/prop_vhs.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "boxes in BackroomsEngine.buildPickups",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~500",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -430,17 +615,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/pickups.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_vhs",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 114
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_battery",
       "role": "pickup: flashlight battery",
       "priority": "P1",
-      "path": "public/assets/models/prop_battery.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "cylinders in BackroomsEngine.buildPickups",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~400",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -469,17 +662,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/pickups.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_battery",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 480
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_ammo_can",
       "role": "pickup: ammunition",
       "priority": "P1",
-      "path": "public/assets/models/prop_ammo_can.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "boxes in BackroomsEngine.buildPickups",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~800",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -509,17 +710,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/pickups.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_ammo_can",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 548
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_office_table",
       "role": "furniture: tape table",
       "priority": "P1",
-      "path": "public/assets/models/prop_office_table.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "BackroomsEngine.buildOfficeTable",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~1.2k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -548,17 +757,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/furniture_and_doors.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_office_table",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 604
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_desk_hide",
       "role": "furniture: hiding desk",
       "priority": "P1",
-      "path": "public/assets/models/prop_desk_hide.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "BackroomsEngine.buildOfficeTable(modestyPanel)",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~1.4k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -588,17 +805,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/furniture_and_doors.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_desk_hide",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 756
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_door",
       "role": "level: closable corridor door",
       "priority": "P1",
-      "path": "public/assets/models/prop_door.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "doors.ts",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~1.5k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "hinge edge, bottom",
@@ -632,17 +857,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/furniture_and_doors.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_door",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 672
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_exit_door",
       "role": "level: Sector 00 exit",
       "priority": "P1",
-      "path": "public/assets/models/prop_exit_door.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "BackroomsEngine.buildExitDoor",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~3k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "frame bottom centre",
@@ -675,17 +908,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/furniture_and_doors.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_exit_door",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 2200
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_troffer",
       "role": "level: ceiling light (instanced)",
       "priority": "P1",
-      "path": "public/assets/models/prop_troffer.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "instanced boxes/planes",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~200",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "top centre, flush with ceiling",
@@ -720,17 +961,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/troffer_states.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_troffer",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 36
+      },
+      "ai_generated": true
     },
     {
       "id": "lm_vending",
       "role": "landmark",
       "priority": "P2",
-      "path": "public/assets/models/lm_vending.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~2.5k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre, back to wall",
@@ -760,17 +1009,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/landmarks.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "lm_vending",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 584
+      },
+      "ai_generated": true
     },
     {
       "id": "lm_cooler",
       "role": "landmark",
       "priority": "P2",
-      "path": "public/assets/models/lm_cooler.glb",
-      "status": "concept approved (pick one of the two variants)",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved (pick one of the two variants)",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~1.5k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre, back to wall",
@@ -799,17 +1056,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/landmarks.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "lm_cooler",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 1420
+      },
+      "ai_generated": true
     },
     {
       "id": "lm_crt",
       "role": "landmark",
       "priority": "P2",
-      "path": "public/assets/models/lm_crt.glb",
-      "status": "concept approved",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~2k",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre, back to wall",
@@ -838,17 +1103,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/landmarks.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "lm_crt",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 1814
+      },
+      "ai_generated": true
     },
     {
       "id": "lm_neon",
       "role": "landmark",
       "priority": "P2",
-      "path": "public/assets/models/lm_neon.glb",
-      "status": "concept approved (pick one board; letters come from the code texture)",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved (pick one board; letters come from the code texture)",
       "placeholder_in_game": "BackroomsEngine.buildLandmarks",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~600",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "board centre, mounted at 2.25 m",
@@ -877,17 +1150,25 @@
       },
       "concepts": [
         "docs/design/art/concepts/props/landmarks.webp"
-      ]
+      ],
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "lm_neon",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 554
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_cone",
       "role": "decor",
       "priority": "P3",
-      "path": "public/assets/models/prop_cone.glb",
-      "status": "planned",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: planned",
       "placeholder_in_game": "BackroomsEngine",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~300",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -912,17 +1193,25 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_cone",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 252
+      },
+      "ai_generated": true
     },
     {
       "id": "prop_fallen_tile",
       "role": "decor",
       "priority": "P3",
-      "path": "public/assets/models/prop_fallen_tile.glb",
-      "status": "planned",
+      "path": "public/assets/models/props.glb",
+      "status": "model v1 built and in the game (needs a playtest); concept review: planned",
       "placeholder_in_game": "BackroomsEngine",
       "technical": {
-        "format": "glb",
+        "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
         "triangles": "~200",
         "materials": "shared prop atlas or trim sheet",
         "pivot": "bottom centre",
@@ -947,7 +1236,15 @@
         "in_engine_reviewed": false,
         "technical_checks_passed": false,
         "approved_by": ""
-      }
+      },
+      "model_v1": {
+        "file": "public/assets/models/props.glb",
+        "node": "prop_fallen_tile",
+        "source": "tools/blender/build_props.py",
+        "report": "tools/blender/reports/props.json",
+        "triangles": 168
+      },
+      "ai_generated": true
     },
     {
       "id": "tex_wallpaper",

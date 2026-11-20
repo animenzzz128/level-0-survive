@@ -266,6 +266,34 @@
     }
   },
   "triangles_total": 14667,
+  "rest_sockets": {
+    "JS_CAM": [
+      0.0,
+      2.03,
+      0.78
+    ],
+    "HIT_head": [
+      0.0,
+      2.02,
+      0.105
+    ],
+    "SOCKET_mouth": [
+      -0.0013,
+      2.0305,
+      0.205
+    ],
+    "SOCKET_hand_R": [
+      -0.4268,
+      0.8278,
+      0.0005
+    ],
+    "HIT_body": [
+      -0.0,
+      1.035,
+      -0.02
+    ]
+  },
+  "socket_warnings": [],
   "materials": [
     "almond_cap",
     "almond_steel",

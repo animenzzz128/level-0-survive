@@ -712,6 +712,8 @@
     }
   },
   "triangles_total": 11066,
+  "rest_sockets": {},
+  "socket_warnings": [],
   "materials": [
     "almond_cap",
     "almond_steel",
