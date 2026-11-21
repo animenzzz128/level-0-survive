@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { GameHud, RunSummary } from './components/GameHud';
+import { CreditsPanel } from './components/CreditsPanel';
 import { HowToPlay } from './components/HowToPlay';
 import { SettingsPanel } from './components/SettingsPanel';
 import { BackroomsEngine } from './game/BackroomsEngine';
@@ -75,7 +76,7 @@ export default function App() {
   const [mode, setMode] = useState<RunMode>('random');
   const [settings, setSettings] = useState<GameSettings>(() => loadSettings());
   // First visit opens the briefing automatically; afterwards it lives behind "How to Play".
-  const [panel, setPanel] = useState<'none' | 'howto' | 'settings'>(() => (hasSeenHowTo() ? 'none' : 'howto'));
+  const [panel, setPanel] = useState<'none' | 'howto' | 'settings' | 'credits'>(() => (hasSeenHowTo() ? 'none' : 'howto'));
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [recordsVersion, setRecordsVersion] = useState(0);
   const runRef = useRef<{ difficulty: DifficultyMode; mode: RunMode; dailyLabel: string; recorded: boolean } | null>(
@@ -84,7 +85,7 @@ export default function App() {
   const dailyLabel = todayLabel();
   // The control that opened a dialog gets focus back when it closes.
   const panelOpenerRef = useRef<HTMLElement | null>(null);
-  const openPanel = (next: 'howto' | 'settings') => {
+  const openPanel = (next: 'howto' | 'settings' | 'credits') => {
     const active = document.activeElement;
     panelOpenerRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
     setPanel(next);
@@ -193,6 +194,7 @@ export default function App() {
         onRequestLock={() => engineRef.current?.requestLock()}
         onOpenHowTo={() => openPanel('howto')}
         onOpenSettings={() => openPanel('settings')}
+        onOpenCredits={() => openPanel('credits')}
         inert={panel !== 'none'}
       />
 
@@ -217,6 +219,7 @@ export default function App() {
           onClose={closePanel}
         />
       )}
+      {panel === 'credits' && <CreditsPanel onClose={closePanel} />}
     </main>
   );
 }

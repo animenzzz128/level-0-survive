@@ -49,4 +49,14 @@ Reviews and audits of the game are in [docs/review](docs/review/README.md).
 ## Art & AI
 
 - **Art and sound:** every texture and sound is generated in code (`src/game/textures.ts`, `src/game/audio.ts`); there are no image or audio files and no third-party assets. The game makes no AI calls at runtime.
+- **Planned models:** design sheets, image prompts and true-scale blueprints for Blender models of the entities and props are in [docs/design/art](docs/design/art/art-bible.md).
 - **Code:** the first build was generated in Google AI Studio. Later work (bug fixes, the survival-horror loop, layouts, onboarding, settings, performance, entity AI and pacing) was done with Claude Code (Claude Opus 5.5) as an AI pair programmer, under Jacky Yao's direction.
+
+## License and credits
+
+- **Code:** GNU General Public License v3.0 or later ([LICENSE](LICENSE)).
+- **Art, models, textures, audio and design documents:** CC BY-SA 3.0 ([LICENSES/CC-BY-SA-3.0.txt](LICENSES/CC-BY-SA-3.0.txt)).
+
+Level 0, Smilers, Skin-Stealers and Almond Water originate from the [Backrooms Wiki](https://backrooms-wiki.wikidot.com)
+and its authors (CC BY-SA 3.0), adapted for this game. Each page and its authors are credited in [CREDITS.md](CREDITS.md)
+and on the game's Credits screen.

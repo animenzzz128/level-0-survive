@@ -34,6 +34,7 @@ interface GameHudProps {
   onRequestLock: () => void;
   onOpenHowTo: () => void;
   onOpenSettings: () => void;
+  onOpenCredits: () => void;
   /** A dialog is open on top: the HUD must not take focus or clicks (game-ui-ux: focus stays in the modal). */
   inert?: boolean;
 }
@@ -69,6 +70,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   onRequestLock,
   onOpenHowTo,
   onOpenSettings,
+  onOpenCredits,
   inert = false,
 }) => {
   const startRef = useRef<HTMLButtonElement>(null);
@@ -617,6 +619,13 @@ export const GameHud: React.FC<GameHudProps> = ({
               >
                 Settings
               </button>
+              <button
+                type="button"
+                onClick={onOpenCredits}
+                className="border border-[#d4be74]/20 px-4 py-3 text-sm font-medium text-[#bfb693] hover:border-[#e8b838] hover:text-white"
+              >
+                Credits
+              </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 font-mono-hud text-sm text-[#9e9472]">
               <span>
@@ -631,6 +640,11 @@ export const GameHud: React.FC<GameHudProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 font-mono-hud text-sm text-[#9e9472]">
             <span>Howler hunts by sound · Smiler fears your light · Skin-Stealer mimics supplies</span>
             <span>Close doors behind you · Hide under desks · Batteries do not recharge</span>
+            {/* Attribution the Backrooms Wiki licence asks for, visible where the game is played. */}
+            <span className="w-full text-[#a89e79]">
+              Level 0, Smilers, Skin-Stealers and Almond Water from the Backrooms Wiki and its authors (CC BY-SA 3.0) ·
+              Game code GPL-3.0 · see Credits
+            </span>
           </div>
         </div>
       )}

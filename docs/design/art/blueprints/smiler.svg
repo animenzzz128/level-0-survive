@@ -1,0 +1,72 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1250 760' width='1250' height='760' font-family='Noto Sans SC, Microsoft YaHei, PingFang SC, sans-serif'>
+<rect width='1250' height='760' fill='#efe6c4'/>
+<line x1='60' x2='1230' y1='660.0' y2='660.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='664.0' font-size='13' fill='#3b3626'>0.0 m</text>
+<line x1='60' x2='1230' y1='570.0' y2='570.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='574.0' font-size='13' fill='#3b3626'>0.5 m</text>
+<line x1='60' x2='1230' y1='480.0' y2='480.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='484.0' font-size='13' fill='#3b3626'>1.0 m</text>
+<line x1='60' x2='1230' y1='390.0' y2='390.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='394.0' font-size='13' fill='#3b3626'>1.5 m</text>
+<line x1='60' x2='1230' y1='300.0' y2='300.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='304.0' font-size='13' fill='#3b3626'>2.0 m</text>
+<line x1='60' x2='1230' y1='210.0' y2='210.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='214.0' font-size='13' fill='#3b3626'>2.5 m</text>
+<line x1='60' x2='1230' y1='120.0' y2='120.0' stroke='#d3c79c' stroke-width='1'/>
+<text x='14' y='124.0' font-size='13' fill='#3b3626'>3.0 m</text>
+<line x1='60' x2='1230' y1='102.0' y2='102.0' stroke='#3b3626' stroke-width='1.5' stroke-dasharray='10 6'/>
+<text x='990' y='96.0' font-size='13' fill='#3b3626'>吊顶 3.1 m（墙高）</text>
+<line x1='60' x2='1230' y1='357.6' y2='357.6' stroke='#2f6fb0' stroke-width='1.5' stroke-dasharray='6 5'/>
+<text x='990' y='351.6' font-size='13' fill='#2f6fb0'>玩家眼高 1.68 m</text>
+<line x1='40' x2='1230' y1='660' y2='660' stroke='#3b3626' stroke-width='2.5'/>
+<text x='70' y='34' font-size='22' font-weight='700' fill='#3b3626'>Smiler（微笑者）比例图</text>
+<text x='70' y='58' font-size='14' fill='#3b3626'>左：正视，悬浮 · 右：侧视，攻击时展开手臂 · 红色虚线 = 代码命中框（头 1.605–2.155 m，身体 0.175–1.605 m）</text>
+<line x1='1020' x2='1200' y1='738' y2='738' stroke='#3b3626' stroke-width='3'/>
+<text x='1020' y='730' font-size='12' fill='#3b3626'>1 m = 180 px（1:1 游戏尺寸）</text>
+<polygon points='376.0,368.4 383.2,444.0 401.2,534.0 417.4,595.2 442.6,595.2 458.8,534.0 476.8,444.0 484.0,368.4' fill='#0b0b0f' opacity='0.92'/>
+<polyline points='409.8,591.6 399.8,609.6 392.2,624.0' fill='none' stroke='#0b0b0f' stroke-width='5' stroke-linejoin='round' stroke-linecap='round' opacity='0.7'/>
+<polyline points='417.9,591.6 411.9,609.6 407.4,624.0' fill='none' stroke='#0b0b0f' stroke-width='5' stroke-linejoin='round' stroke-linecap='round' opacity='0.7'/>
+<polyline points='425.9,591.6 423.9,609.6 422.4,624.0' fill='none' stroke='#0b0b0f' stroke-width='5' stroke-linejoin='round' stroke-linecap='round' opacity='0.7'/>
+<polyline points='434.1,591.6 436.1,609.6 437.6,624.0' fill='none' stroke='#0b0b0f' stroke-width='5' stroke-linejoin='round' stroke-linecap='round' opacity='0.7'/>
+<polyline points='442.1,591.6 448.1,609.6 452.6,624.0' fill='none' stroke='#0b0b0f' stroke-width='5' stroke-linejoin='round' stroke-linecap='round' opacity='0.7'/>
+<polyline points='450.2,591.6 460.2,609.6 467.8,624.0' fill='none' stroke='#0b0b0f' stroke-width='5' stroke-linejoin='round' stroke-linecap='round' opacity='0.7'/>
+<ellipse cx='430' cy='321.6' rx='54.0' ry='49.5' fill='#0b0b0f'/>
+<circle cx='412.0' cy='300.0' r='8.1' fill='#ffffff' stroke='#9fb4c8' stroke-width='1'/>
+<circle cx='448.0' cy='300.0' r='8.1' fill='#ffffff' stroke='#9fb4c8' stroke-width='1'/>
+<path d='M380.5,325.2 Q430.0,354.0 479.5,325.2 Q430.0,339.6 380.5,325.2 Z' fill='#ffffff'/>
+<line x1='385.0' y1='327.4' x2='385.0' y2='336.4' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='389.5' y1='328.6' x2='389.5' y2='337.6' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='394.0' y1='329.6' x2='394.0' y2='338.6' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='398.5' y1='330.5' x2='398.5' y2='339.5' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='403.0' y1='331.3' x2='403.0' y2='340.3' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='407.5' y1='331.9' x2='407.5' y2='340.9' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='412.0' y1='332.4' x2='412.0' y2='341.4' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='416.5' y1='332.9' x2='416.5' y2='341.9' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='421.0' y1='333.2' x2='421.0' y2='342.2' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='425.5' y1='333.3' x2='425.5' y2='342.3' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='430.0' y1='333.4' x2='430.0' y2='342.4' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='434.5' y1='333.3' x2='434.5' y2='342.3' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='439.0' y1='333.2' x2='439.0' y2='342.2' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='443.5' y1='332.9' x2='443.5' y2='341.9' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='448.0' y1='332.4' x2='448.0' y2='341.4' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='452.5' y1='331.9' x2='452.5' y2='340.9' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='457.0' y1='331.3' x2='457.0' y2='340.3' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='461.5' y1='330.5' x2='461.5' y2='339.5' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='466.0' y1='329.6' x2='466.0' y2='338.6' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='470.5' y1='328.6' x2='470.5' y2='337.6' stroke='#0b0b0f' stroke-width='1.2'/>
+<line x1='475.0' y1='327.4' x2='475.0' y2='336.4' stroke='#0b0b0f' stroke-width='1.2'/>
+<polyline points='376.0,354.0 354.4,417.0 365.2,483.6 350.8,548.4 358.0,588.0' fill='none' stroke='#6c6a74' stroke-width='3' stroke-linejoin='round' stroke-linecap='round' stroke-dasharray='6 5'/>
+<polyline points='484.0,354.0 505.6,417.0 494.8,483.6 509.2,548.4 502.0,588.0' fill='none' stroke='#6c6a74' stroke-width='3' stroke-linejoin='round' stroke-linecap='round' stroke-dasharray='6 5'/>
+<text x='430.0' y='682.0' font-size='13' fill='#3b3626' text-anchor='middle'>脸中心 1.95 m · 眼 Ø9 cm、间距 20 cm · 笑嘴宽 0.55 m、40–60 颗针齿 · 底部离地 0.2 m</text>
+<text x='72' y='140' font-size='12' fill='#3b3626'>① 脸：独立网格 + 形态键（grin_wide / grin_open / face_tear / face_collapse）</text><text x='72' y='157' font-size='12' fill='#3b3626'>② 眼比笑嘴靠后约 5 cm：移动时视差「不对」</text><text x='72' y='174' font-size='12' fill='#3b3626'>③ 身体：空洞柱，菲涅尔边缘 + 透明度 0.85</text><text x='72' y='191' font-size='12' fill='#3b3626'>④ 灰色虚线：平时折在身后的 4 节手臂</text>
+<polygon points='959.6,368.4 956.0,462.0 938.0,570.0 923.6,595.2 905.6,595.2 898.4,516.0 887.6,426.0 884.0,368.4' fill='#0b0b0f' opacity='0.92'/>
+<ellipse cx='920.0' cy='321.6' rx='43.2' ry='49.5' fill='#0b0b0f'/>
+<line x1='875.0' y1='285.6' x2='875.0' y2='339.6' stroke='#ffffff' stroke-width='4'/>
+<circle cx='884.0' cy='300.0' r='5' fill='#ffffff'/>
+<text x='749.0' y='291.0' font-size='12' fill='#3b3626' text-anchor='middle'>笑嘴在最前，眼睛后退 5 cm</text>
+<polyline points='911.0,368.4 848.0,386.4 790.4,408.0 740.0,393.6 704.0,411.6' fill='none' stroke='#0b0b0f' stroke-width='4' stroke-linejoin='round' stroke-linecap='round' />
+<text x='640' y='702' font-size='12' fill='#3b3626'>攻击（attack_strike）：手臂展开，伸到身前 1.2 m，从两侧合抱</text><text x='640' y='719' font-size='12' fill='#3b3626'>被手电照到（lit_recoil）：后退 2.6 m/s，脸水平撕裂、跳帧</text>
+<rect x='376.0' y='272.1' width='108.0' height='99.0' fill='none' stroke='#b83227' stroke-width='1.5' stroke-dasharray='5 4'/><text x='376.0' y='267.1' font-size='11' fill='#b83227'>头部框 0.60 m 宽</text>
+<rect x='353.5' y='371.1' width='153.0' height='257.4' fill='none' stroke='#b83227' stroke-width='1.5' stroke-dasharray='5 4'/><text x='353.5' y='642.5' font-size='11' fill='#b83227'>身体框 0.85 m 宽</text>
+<rect x='866.0' y='272.1' width='108.0' height='99.0' fill='none' stroke='#b83227' stroke-width='1.5' stroke-dasharray='5 4'/><text x='866.0' y='267.1' font-size='11' fill='#b83227'>头部框</text>
+</svg>
