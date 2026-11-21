@@ -4,7 +4,8 @@
   "blueprints": "docs/design/art/blueprints/",
   "notes": [
     "All entries planned. Keep the procedural placeholder until the glb passes art-bible.md section 3.8 checks.",
-    "2026-11-20: v1 models built by scripts in tools/blender (Blender 4.5, Claude Code under Jacky Yao's direction) and wired into the game; every model is optional and the procedural placeholder remains the fallback. Textures tex_* and decal_set are still the procedural ones."
+    "2026-11-20: v1 models built by scripts in tools/blender (Blender 4.5, Claude Code under Jacky Yao's direction) and wired into the game; every model is optional and the procedural placeholder remains the fallback. Textures tex_* and decal_set are still the procedural ones.",
+    "2026-11-20: Skin-Stealer v2 built from a Hunyuan3D-2mv scan of the concept turnaround (tools/blender/build_skin_stealer_scan.py); Howler and Smiler are still v1."
   ],
   "assets": [
     {
@@ -12,7 +13,7 @@
       "role": "entity: mimic that hides as Almond Water",
       "priority": "P0 (do first)",
       "path": "public/assets/models/ent_skin_stealer.glb",
-      "status": "model v1 built and in the game (needs a playtest); concept review: concept approved with notes: sucker seams not stitches, raised right shoulder, sculpt a generic stolen face",
+      "status": "model v2 (Hunyuan3D scan, fitted to the v1 rig) in the game, needs a playtest; concept review: concept approved with notes: sucker seams not stitches, raised right shoulder, sculpt a generic stolen face",
       "placeholder_in_game": "procedural primitives in entities.ts (buildBruteMesh)",
       "technical": {
         "format": "glb, textures embedded as PNG/JPEG, no mesh compression yet (planned: meshopt, KTX2)",
@@ -148,7 +149,31 @@
           ]
         }
       },
-      "ai_generated": true
+      "ai_generated": true,
+      "model_v2": {
+        "file": "public/assets/models/ent_skin_stealer.glb",
+        "source": "tools/blender/build_skin_stealer_scan.py",
+        "scan": "tools/blender/sources/skin_stealer_hunyuan2mv.glb",
+        "scan_made_with": "Hunyuan3D-2mv (Tencent Hunyuan 3D 2.0 Community License), see tools/hunyuan/README.md",
+        "report": "tools/blender/reports/ent_skin_stealer.json",
+        "triangles": 13037,
+        "bytes": 2329116,
+        "clips": [
+          "attack_recover",
+          "attack_strike",
+          "attack_windup",
+          "death",
+          "disguised_shudder",
+          "idle",
+          "jumpscare",
+          "lurch",
+          "mimic_tilt",
+          "reveal",
+          "stagger",
+          "stalk",
+          "walk_limp"
+        ]
+      }
     },
     {
       "id": "ent_howler",

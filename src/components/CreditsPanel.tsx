@@ -91,7 +91,7 @@ export const CreditsPanel: React.FC<CreditsPanelProps> = ({ onClose }) => (
         <ExternalLink href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`}>full notices</ExternalLink>). Fonts:
         IBM Plex Mono, Oswald and Plus Jakarta Sans (SIL Open Font License). Made with Google AI Studio and Claude
         (Anthropic) under Jacky Yao&apos;s direction; the 3D models are built by Blender scripts written with Claude
-        Code.
+        Code, and the Skin-Stealer&apos;s body starts from a Tencent Hunyuan3D mesh of its concept art.
       </p>
 
       <div className="mt-7 flex justify-end">
