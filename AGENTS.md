@@ -72,7 +72,7 @@ CI: `.github/workflows/pages.yml`, job `build`, runs install, lint, test and bui
 | Textures and sound (all generated in code) | `src/game/textures.ts`, `src/game/audio.ts` |
 | Quality levels, light pool, measurement | `src/game/perf.ts`, `meshMerge.ts` |
 | 3D models: loading, props, entity clips, death scenes, pistol | `src/game/assets.ts` (loader), `entities.ts` (`useModel`, `animateModel`), `BackroomsEngine.ts` (`startJumpscare`), `weapon.ts` (`setModel`) |
-| Model sources (Blender scripts, reports, previews) | `tools/blender/`, interface in [docs/design/art/model-contract.md](docs/design/art/model-contract.md) |
+| Model sources (Blender scripts, reports, previews; scan meshes from Hunyuan3D in `tools/blender/sources/`, made by `tools/hunyuan/`) | `tools/blender/`, interface in [docs/design/art/model-contract.md](docs/design/art/model-contract.md) |
 
 ## Known traps
 
@@ -82,3 +82,5 @@ CI: `.github/workflows/pages.yml`, job `build`, runs install, lint, test and bui
 - The `.glb` files in `public/assets/models/` are build output of `tools/blender/build_*.py`. Change the script and
   re-run it; never edit a `.glb` by hand. Every model is optional: the procedural placeholder stays as the fallback.
 - Never run `mergeStaticMeshes` on model meshes: it disposes geometry the asset cache still shares.
+- `build_skin_stealer.py` run on its own writes the v1 Skin-Stealer over v2. The v2 model comes from
+  `build_skin_stealer_scan.py`, which imports the v1 script for the rig, clips, mask and bottle.
