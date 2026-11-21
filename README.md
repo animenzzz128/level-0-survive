@@ -9,6 +9,7 @@ Find the 4 VHS tapes by following their static, then reach the Sector 00 exit. E
 ## Features
 
 - Three entities (the Smiler, the Bacteria Howler and the Skin-Stealer) that notice you gradually, hunt by sight and sound, and come back after they die.
+- You hear them before you see them: each has its own footsteps (claws and cables, a wet drag, a stamp and a dragged foot) that grow louder and clearer as it comes closer, and a sting tells you when one has spotted you.
 - A pacing director that alternates pressure with quieter stretches.
 - Random layouts every run, plus a daily layout that is the same for everyone that day; best times kept per difficulty (Standard, Nightmare).
 - Doors you can close behind you, desks to hide under, junction arrows that mostly point to the exit.
