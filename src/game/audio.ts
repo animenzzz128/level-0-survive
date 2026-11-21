@@ -1,4 +1,14 @@
 import type { EntityVoice } from './entities';
+import {
+  Cooldown,
+  distanceCues,
+  dryLevel,
+  SPOTTED_COOLDOWN,
+  spottedLevel,
+  VOICE_REF_DISTANCE,
+  VOICE_ROLLOFF,
+  type Footfall,
+} from './entitySounds';
 import type { EntityArchetype } from './types';
 
 export type WorldSound = 'door_open' | 'door_close' | 'door_bash' | 'door_break' | 'claw';
@@ -37,14 +47,28 @@ function createWorldPanner(ctx: AudioContext): PannerNode {
   return panner;
 }
 
-/** HRTF-positioned sound source that follows one entity; muffled when a wall is in the way. */
+/** Recent sounds, for `__BACKROOMS_DEBUG__.audioEvents()`: what played, how far away, and at what level. */
+export interface AudioEvent {
+  t: number;
+  kind: string;
+  distance: number;
+  level: number;
+}
+
+/**
+ * HRTF-positioned sound source that follows one entity; muffled when a wall is in the way. Distance is heard three
+ * ways (entitySounds.distanceCues): the panner drops the level, a low-pass takes the treble away, and a reverb send
+ * that falls off more slowly than the dry sound makes far-off steps sound like they come down a corridor.
+ */
 class SpatialVoice implements EntityVoice {
   private readonly input: GainNode;
   private readonly occlusion: BiquadFilterNode;
+  private readonly distanceFilter: BiquadFilterNode;
   private readonly occlusionGain: GainNode;
   private readonly panner: PannerNode;
-  private readonly reverbSend: GainNode;
+  private readonly farSend: GainNode;
   private readonly pos: Point3 = { x: 0, y: 0, z: 0 };
+  private occluded = false;
 
   constructor(
     private readonly ctx: AudioContext,
@@ -52,21 +76,36 @@ class SpatialVoice implements EntityVoice {
     reverb: AudioNode,
     private readonly noise: AudioBuffer,
     private readonly listener: Point3,
+    private readonly log: (kind: string, distance: number, level: number) => void,
   ) {
     this.input = ctx.createGain();
     this.occlusion = ctx.createBiquadFilter();
     this.occlusion.type = 'lowpass';
     this.occlusion.frequency.value = 9000;
+    this.distanceFilter = ctx.createBiquadFilter();
+    this.distanceFilter.type = 'lowpass';
+    this.distanceFilter.frequency.value = 12000;
+    this.distanceFilter.Q.value = 0.5;
     this.occlusionGain = ctx.createGain();
-    this.panner = createWorldPanner(ctx);
-    this.reverbSend = ctx.createGain();
-    this.reverbSend.gain.value = 0.5;
+    this.panner = ctx.createPanner();
+    this.panner.panningModel = 'HRTF';
+    this.panner.distanceModel = 'inverse';
+    this.panner.refDistance = VOICE_REF_DISTANCE;
+    this.panner.maxDistance = 40;
+    this.panner.rolloffFactor = VOICE_ROLLOFF;
+    this.farSend = ctx.createGain();
+    this.farSend.gain.value = 0;
     this.input.connect(this.occlusion);
-    this.occlusion.connect(this.occlusionGain);
+    this.occlusion.connect(this.distanceFilter);
+    this.distanceFilter.connect(this.occlusionGain);
     this.occlusionGain.connect(this.panner);
     this.panner.connect(dry);
-    this.panner.connect(this.reverbSend);
-    this.reverbSend.connect(reverb);
+    this.occlusionGain.connect(this.farSend);
+    this.farSend.connect(reverb);
+  }
+
+  private distance(): number {
+    return Math.hypot(this.pos.x - this.listener.x, this.pos.z - this.listener.z);
   }
 
   setPosition(x: number, y: number, z: number): void {
@@ -75,11 +114,16 @@ class SpatialVoice implements EntityVoice {
     this.pos.y = y;
     this.pos.z = z;
     placePanner(this.panner, x, y, z);
+    const cues = distanceCues(this.distance());
+    const now = this.ctx.currentTime;
+    this.distanceFilter.frequency.setTargetAtTime(cues.lowpass, now, 0.1);
+    this.farSend.gain.setTargetAtTime(cues.wet, now, 0.1);
   }
 
   /** Behind a wall: muffled and quieter (a wall takes level away, not just treble). */
   setOccluded(occluded: boolean): void {
     if (this.ctx.state === 'closed') return;
+    this.occluded = occluded;
     this.occlusion.frequency.setTargetAtTime(occluded ? 650 : 9000, this.ctx.currentTime, 0.08);
     this.occlusionGain.gain.setTargetAtTime(occluded ? 0.45 : 1, this.ctx.currentTime, 0.08);
   }
@@ -143,11 +187,103 @@ class SpatialVoice implements EntityVoice {
     osc.stop(start + duration + 0.05);
   }
 
-  playStep(heavy: boolean): void {
+  /** A sweep of filtered noise (a drag or scrape): the filter moves from `fromHz` to `toHz` over the sound. */
+  private sweep(start: number, duration: number, fromHz: number, toHz: number, peak: number, q = 1.2): void {
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = q;
+    filter.frequency.setValueAtTime(fromHz, start);
+    filter.frequency.exponentialRampToValueAtTime(toHz, start + duration);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(peak, start + duration * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(this.input);
+    src.start(start, Math.random() * 1.2, duration + 0.05);
+  }
+
+  /** Claw tips on carpet: a few sharp, bright ticks. */
+  private claws(start: number, count: number, peak: number): void {
+    for (let i = 0; i < count; i++) {
+      this.noiseBurst(start + i * vary(0.03, 0.3), 0.018, 'bandpass', vary(3800, 0.18), vary(peak, 0.2), 5);
+    }
+  }
+
+  /**
+   * One footfall (entitySounds.Footfall), `loudness` 0.6 walking .. 1 running. Each creature has its own: the
+   * Howler's claws and slapping cables, the Smiler's wet drag, the Skin-Stealer's bare stamp and dragged foot.
+   */
+  playFootfall(sound: Footfall, loudness: number): void {
     if (this.silent()) return;
     const now = this.ctx.currentTime;
-    this.noiseBurst(now, heavy ? 0.16 : 0.1, 'lowpass', vary(heavy ? 170 : 260, 0.12), vary(heavy ? 0.9 : 0.55, 0.15));
-    if (heavy) this.tone(now, 0.18, 'sine', vary(70, 0.08), 38, 0.6, 400);
+    const l = loudness;
+    if (sound === 'howler_step') {
+      this.claws(now, 3, 0.55 * l);
+      this.noiseBurst(now + 0.01, 0.07, 'bandpass', vary(700, 0.15), 0.5 * l, 1.4); // cables slapping
+      this.noiseBurst(now, 0.06, 'lowpass', vary(240, 0.12), 0.45 * l);
+    } else if (sound === 'howler_gallop') {
+      // front pair, then hind pair: two hits 80 ms apart, cables rattling after
+      for (const t of [0, vary(0.08, 0.15)]) {
+        this.claws(now + t, 2, 0.7 * l);
+        this.noiseBurst(now + t, 0.07, 'lowpass', vary(260, 0.12), 0.65 * l);
+        this.noiseBurst(now + t + 0.01, 0.08, 'bandpass', vary(800, 0.15), 0.55 * l, 1.4);
+      }
+      for (let i = 0; i < 4; i++) {
+        this.noiseBurst(now + 0.12 + i * vary(0.035, 0.4), 0.02, 'bandpass', vary(2400, 0.3), 0.22 * l, 4);
+      }
+    } else if (sound === 'smiler_drag') {
+      // tendrils over carpet: a slow wet swell, a soft slap at the end
+      this.sweep(now, 0.55, vary(420, 0.1), vary(950, 0.1), 0.42 * l, 1.6);
+      this.noiseBurst(now + 0.42, 0.06, 'bandpass', vary(1500, 0.15), 0.25 * l, 2.5);
+    } else if (sound === 'brute_thud') {
+      // a heavy bare foot: low thump, flesh slapping the carpet
+      this.tone(now, 0.22, 'sine', vary(62, 0.08), 34, 0.95 * l, 400);
+      this.noiseBurst(now, 0.15, 'lowpass', vary(230, 0.12), 0.9 * l);
+      this.noiseBurst(now + 0.005, 0.045, 'bandpass', vary(1350, 0.15), 0.5 * l, 1.8);
+    } else {
+      // the bad leg dragged after it: a scrape that starts soft and grinds
+      this.sweep(now, 0.42, vary(520, 0.1), vary(300, 0.1), 0.55 * l, 1.1);
+      this.noiseBurst(now + 0.36, 0.08, 'lowpass', vary(200, 0.12), 0.4 * l);
+    }
+    const d = this.distance();
+    this.log(sound, d, l * this.levelAt(d));
+  }
+
+  /** The level the panner and a wall leave at distance d (for the debug log). */
+  private levelAt(d: number): number {
+    return dryLevel(d) * (this.occluded ? 0.45 : 1);
+  }
+
+  /** A sung syllable: a buzzing pitch through two formant filters (for the Skin-Stealer's borrowed voice). */
+  private syllable(start: number, duration: number, pitch: number, f1: number, f2: number, peak: number): void {
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(pitch, start);
+    osc.frequency.linearRampToValueAtTime(pitch * vary(1.12, 0.05), start + duration * 0.6);
+    osc.frequency.linearRampToValueAtTime(pitch * 0.86, start + duration);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(peak, start + 0.05);
+    g.gain.setValueAtTime(peak, start + duration * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    for (const [f, q] of [
+      [f1, 6],
+      [f2, 9],
+    ] as const) {
+      const band = this.ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = f;
+      band.Q.value = q;
+      osc.connect(band);
+      band.connect(g);
+    }
+    g.connect(this.input);
+    osc.start(start);
+    osc.stop(start + duration + 0.05);
   }
 
   playScreech(archetype: EntityArchetype): void {
@@ -192,10 +328,13 @@ class SpatialVoice implements EntityVoice {
       }
       this.noiseBurst(now, 0.7, 'bandpass', 2600, 0.25, 3);
     } else {
-      // Wet, low bellow
-      this.tone(now, 0.75, 'sawtooth', 210, 85, 0.85, 700);
-      this.noiseBurst(now, 0.6, 'lowpass', 500, 0.5);
+      // It has heard you and answers in a borrowed voice: a wet breath in, then "hel-lo?" pitched wrong.
+      this.sweep(now, 0.35, 700, 1600, 0.3, 1.5);
+      this.syllable(now + 0.3, 0.22, vary(150, 0.06), 560, 1850, 0.9);
+      this.syllable(now + 0.55, 0.42, vary(128, 0.06), 470, 880, 0.85);
+      this.tone(now + 0.3, 0.7, 'sawtooth', 70, 52, 0.35, 260);
     }
+    this.log('screech_' + archetype, this.distance(), this.levelAt(this.distance()));
   }
 
   playIdle(archetype: EntityArchetype): void {
@@ -238,8 +377,10 @@ class SpatialVoice implements EntityVoice {
     try {
       this.input.disconnect();
       this.occlusion.disconnect();
+      this.distanceFilter.disconnect();
+      this.occlusionGain.disconnect();
       this.panner.disconnect();
-      this.reverbSend.disconnect();
+      this.farSend.disconnect();
     } catch {
       /* ignore if context already closed */
     }
@@ -276,6 +417,20 @@ export class HorrorAudioEngine {
   private muted = false;
   private volume = 0.8;
   private started = false;
+  /** Seconds of adrenaline after being spotted: the heartbeat runs fast even with the hunter still far away. */
+  private spottedRush = 0;
+  private readonly spottedCooldown = new Cooldown(SPOTTED_COOLDOWN);
+  private readonly events: AudioEvent[] = [];
+
+  private logEvent(kind: string, distance: number, level: number): void {
+    this.events.push({ t: this.ctx ? +this.ctx.currentTime.toFixed(2) : 0, kind, distance: +distance.toFixed(1), level: +level.toFixed(3) });
+    if (this.events.length > 60) this.events.shift();
+  }
+
+  /** The last 60 entity sounds and stings (debug API). */
+  public recentEvents(): AudioEvent[] {
+    return this.events.slice();
+  }
 
   public init(): void {
     if (this.ctx) {
@@ -601,7 +756,9 @@ export class HorrorAudioEngine {
   /** A positional voice for one entity, or null until audio has been unlocked by a user gesture. */
   public createVoice(): EntityVoice | null {
     if (!this.ctx || !this.worldBus || !this.reverbNode || !this.noiseBuffer) return null;
-    return new SpatialVoice(this.ctx, this.worldBus, this.reverbNode, this.noiseBuffer, this.listenerPos);
+    return new SpatialVoice(this.ctx, this.worldBus, this.reverbNode, this.noiseBuffer, this.listenerPos, (k, d, l) =>
+      this.logEvent(k, d, l),
+    );
   }
 
   /** One-shot positional sound for level objects (doors). `occluded`: a wall is between it and the listener. */
@@ -701,8 +858,9 @@ export class HorrorAudioEngine {
     this.humGain.gain.setTargetAtTime(targetHum, now, 0.12);
     this.droneGain?.gain.setTargetAtTime(isPlaying ? this.threatLevel * 0.035 : 0, now, 1.5);
 
-    if (isPlaying && nearestEntityDist < 13) {
-      const proximity = Math.max(0, 1 - nearestEntityDist / 13);
+    this.spottedRush = Math.max(0, this.spottedRush - delta);
+    if (isPlaying && (nearestEntityDist < 13 || this.spottedRush > 0)) {
+      const proximity = Math.max(0, 1 - nearestEntityDist / 13, Math.min(1, this.spottedRush / 6) * 0.75);
       const interval = Math.max(0.32, 0.95 - proximity * 0.58);
       this.heartbeatTimer -= delta;
       if (this.heartbeatTimer <= 0) {
@@ -883,6 +1041,97 @@ export class HorrorAudioEngine {
       tear.frequency.exponentialRampToValueAtTime(2600, now + 1.0);
       tone(1.3, 0.18, 'sine', 64, 34, 0.6, 0.02);
     }
+  }
+
+  /**
+   * You have been spotted: a sting in your head (not positional), quieter if the hunter is far away, and a few
+   * seconds of racing heartbeat. At most once per SPOTTED_COOLDOWN, whoever spotted you. Each creature has its own
+   * colour: the Howler a shrill electric stab, the Smiler a glassy chord, the Skin-Stealer a low wet hit.
+   */
+  public playSpotted(kind: EntityArchetype, distance: number): boolean {
+    if (!this.ctx || this.ctx.state === 'closed' || !this.sfxBus || !this.reverbNode || !this.noiseBuffer) return false;
+    if (!this.spottedCooldown.take(this.ctx.currentTime)) return false;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const level = spottedLevel(distance);
+    const out = ctx.createGain();
+    out.gain.value = level;
+    out.connect(this.sfxBus);
+    out.connect(this.reverbNode);
+    const base = kind === 'howler' ? 220 : kind === 'smiler' ? 330 : 98;
+    // the stab: a dissonant cluster (root, minor second, tritone) with a hard attack and a long fall
+    for (const [ratio, type, peak] of [
+      [1, 'sawtooth', 0.22],
+      [16 / 15, 'sawtooth', 0.18],
+      [Math.SQRT2, kind === 'smiler' ? 'sine' : 'sawtooth', 0.16],
+      [2.01, 'triangle', 0.1],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(base * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(base * ratio * (kind === 'brute' ? 0.92 : 1.03), now + 1.4);
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.Q.value = 0.9;
+      band.frequency.setValueAtTime(base * 9, now);
+      band.frequency.exponentialRampToValueAtTime(base * 3, now + 1.4);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.linearRampToValueAtTime(peak, now + 0.012);
+      g.gain.exponentialRampToValueAtTime(peak * 0.35, now + 0.25);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
+      osc.connect(band);
+      band.connect(g);
+      g.connect(out);
+      osc.start(now);
+      osc.stop(now + 1.55);
+    }
+    // a sub hit under it
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(58, now);
+    sub.frequency.exponentialRampToValueAtTime(30, now + 0.6);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.0001, now);
+    sg.gain.linearRampToValueAtTime(0.55, now + 0.01);
+    sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    sub.connect(sg);
+    sg.connect(out);
+    sub.start(now);
+    sub.stop(now + 0.75);
+    // a burst of hiss that opens the sting, like a breath caught
+    const hiss = ctx.createBufferSource();
+    hiss.buffer = this.noiseBuffer;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = kind === 'brute' ? 1200 : 2600;
+    const hg = ctx.createGain();
+    hg.gain.setValueAtTime(0.0001, now);
+    hg.gain.linearRampToValueAtTime(0.16, now + 0.02);
+    hg.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+    hiss.connect(hp);
+    hp.connect(hg);
+    hg.connect(out);
+    hiss.start(now, Math.random(), 0.55);
+    const timerId = window.setTimeout(() => {
+      this.pendingCleanupTimers.delete(timerId);
+      try {
+        out.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }, 1800);
+    this.pendingCleanupTimers.add(timerId);
+    this.spottedRush = 6;
+    this.heartbeatTimer = 0.35;
+    this.logEvent('spotted_' + kind, distance, level);
+    return true;
+  }
+
+  /** A new run: no cooldown left over from the last one. */
+  public resetSpotted(): void {
+    this.spottedCooldown.reset();
+    this.spottedRush = 0;
   }
 
   /** Low falling sweep and a swell of static when the run ends in death. */

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HEADSHOT_MULTIPLIER } from './combat';
+import { FootfallTracker, gaitFor, type Footfall } from './entitySounds';
 import { mergeStaticMeshes } from './meshMerge';
 import { EntityArchetype, EntityState } from './types';
 
@@ -30,7 +31,8 @@ export interface EntityVoice {
   setPosition(x: number, y: number, z: number): void;
   /** Muffle the voice when a wall or closed door is between it and the player. */
   setOccluded(occluded: boolean): void;
-  playStep(heavy: boolean): void;
+  /** One footfall: each archetype has its own, spaced by its stride (entitySounds.ts). */
+  playFootfall(sound: Footfall, loudness: number): void;
   playScreech(archetype: EntityArchetype): void;
   playIdle(archetype: EntityArchetype): void;
   /** Rising rasp right before a melee swing lands: the player's cue to back off. */
@@ -270,7 +272,7 @@ export class BackroomsEntity {
   private dyingTimer = 0;
   private revealTimer = 0;
   private removalReason: 'killed' | 'banished' = 'killed';
-  private stepTimer = 0;
+  private footfalls!: FootfallTracker;
   private idleTimer = 3 + Math.random() * 5;
   private twitchTimer = 4 + Math.random() * 4;
   private twitchLeft = 0;
@@ -319,6 +321,7 @@ export class BackroomsEntity {
   ) {
     this.id = id;
     this.archetype = archetype;
+    this.footfalls = new FootfallTracker(archetype);
     this.profile = buildProfile(archetype, nightmare);
     this.label = this.profile.label;
     this.maxHealth = this.profile.maxHealth;
@@ -1060,6 +1063,7 @@ export class BackroomsEntity {
   /** Bring a removed entity back into play (director respawns). */
   public respawn(x: number, z: number, disguised: boolean): void {
     this.position.set(x, 0, z);
+    this.footfalls.reset();
     this.health = this.maxHealth;
     this.alive = true;
     this.group.visible = true;
@@ -1421,7 +1425,8 @@ export class BackroomsEntity {
       speed = this.profile.speedPatrol;
     }
 
-    let moved = false;
+    const fromX = this.position.x;
+    const fromZ = this.position.z;
     if (this.state === 'retreat') {
       if (dist > 0.01) {
         const step = 2.6 * delta;
@@ -1470,7 +1475,6 @@ export class BackroomsEntity {
         this.position.z += (wz / len) * step;
         world.resolveCollision(this.position, ENTITY_RADIUS);
         this.turnToward(this.cachedNextWaypoint.x, this.cachedNextWaypoint.z, delta, 9);
-        moved = true;
 
         // If patrolling/searching gets pinned against a corner or closed door, pick a new destination.
         if (this.state === 'patrol' || this.state === 'search') {
@@ -1508,13 +1512,12 @@ export class BackroomsEntity {
       this.voice?.playWindup(this.archetype);
     }
 
-    if (moved && this.archetype !== 'smiler') {
-      this.stepTimer -= delta;
-      if (this.stepTimer <= 0) {
-        this.stepTimer = speed > 3 ? 0.3 : 0.55;
-        this.voice?.playStep(this.archetype === 'brute');
-      }
-    }
+    // Footfalls follow the ground covered, so they keep time with the stride (and the model's walk cycle) and
+    // speed up as the entity breaks into a run; heard from far off, they are how you know something is coming.
+    const travelled = Math.hypot(this.position.x - fromX, this.position.z - fromZ);
+    const gait = gaitFor(this.state === 'retreat' ? 2.6 : speed, this.profile.speedPatrol, this.profile.speedChase);
+    const footfall = this.footfalls.advance(travelled, gait);
+    if (footfall) this.voice?.playFootfall(footfall.sound, footfall.loudness);
     this.idleTimer -= delta;
     if (this.idleTimer <= 0) {
       this.idleTimer = (this.state === 'chase' ? 2.5 : 4.5) + Math.random() * 4;

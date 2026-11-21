@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { GameAssets, MODEL_FILES, findMesh, isAssetMesh, type ModelId } from './assets';
-import { HorrorAudioEngine } from './audio';
+import { HorrorAudioEngine, type AudioEvent } from './audio';
 import { DEFAULT_BINDINGS, GameAction, KeyBindings, KeyHints, actionForCode, keyHintsFor, normalizeCode } from './controls';
 import { DirectorActions, ThreatDirector } from './director';
 import { DoorInstance } from './doors';
@@ -145,6 +145,8 @@ declare global {
       bench: (frames?: number) => BenchReport;
       /** Have the nearest living entity of this kind land a fatal blow (death scene QA). False if there is none. */
       killBy: (archetype: EntityArchetype) => boolean;
+      /** The last 60 monster sounds and "spotted" stings: kind, distance (m) and level after distance and walls. */
+      audioEvents: () => AudioEvent[];
     };
   }
 }
@@ -405,7 +407,7 @@ export class BackroomsEngine {
 
   private readonly entityHooks: EntityHooks = {
     onAttack: (entity, damage) => this.damagePlayer(damage, entity),
-    onScreech: (entity) => entity.voice?.playScreech(entity.archetype),
+    onScreech: (entity) => this.onEntitySpotted(entity),
     onRemoved: (entity, reason) => {
       this.director.entityRemoved(entity);
       if (reason === 'banished') {
@@ -2106,6 +2108,7 @@ export class BackroomsEngine {
     this.killedBy = null;
     this.resetJumpscareEffects();
     this.audio.setLowHealth(0);
+    this.audio.resetSpotted();
     this.swayX = 0;
     this.swayY = 0;
     this.footstepTimer = 0;
@@ -2539,7 +2542,7 @@ export class BackroomsEngine {
           this.hitmarkerTimer = marker === 'head' ? 0.3 : 0.22;
           this.audio.playHitmarker(marker);
           this.spawnImpactParticles(hit.point, 0x991b1b, res.headshot ? 18 : 10);
-          if (res.revealed) targetEntity.voice?.playScreech(targetEntity.archetype);
+          if (res.revealed) this.onEntitySpotted(targetEntity);
 
           if (res.killed) {
             this.kills++;
@@ -3479,6 +3482,16 @@ export class BackroomsEngine {
     this.onHudUpdate(next);
   }
 
+  /**
+   * An entity has just started hunting you (it saw or heard you, or it burst out of its disguise): its own call
+   * from where it stands, and the "spotted" sting in your head (audio.playSpotted has its own cooldown).
+   */
+  private onEntitySpotted(entity: BackroomsEntity): void {
+    entity.voice?.playScreech(entity.archetype);
+    const d = Math.hypot(entity.position.x - this.playerPos.x, entity.position.z - this.playerPos.z);
+    this.audio.playSpotted(entity.archetype, d);
+  }
+
   private installDebugApi(): void {
     window.__BACKROOMS_DEBUG__ = {
       getState: () => ({
@@ -3519,6 +3532,7 @@ export class BackroomsEngine {
           : null,
         modelsLoaded: this.assets.loadedIds,
       }),
+      audioEvents: () => this.audio.recentEvents(),
       killBy: (archetype: EntityArchetype) => {
         if (this.phase !== 'playing') return false;
         let best: BackroomsEntity | null = null;
