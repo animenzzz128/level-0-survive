@@ -1,0 +1,243 @@
+{
+  "file": "ent_smiler.glb",
+  "bytes": 1256340,
+  "nodes": [
+    {
+      "name": "smiler_rig",
+      "type": "ARMATURE",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "JS_CAM",
+      "type": "EMPTY",
+      "parent": "smiler_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "smiler_body",
+      "type": "MESH",
+      "parent": "smiler_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "smiler_face",
+      "type": "MESH",
+      "parent": "smiler_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "HIT_head",
+      "type": "EMPTY",
+      "parent": "smiler_rig",
+      "parent_bone": "face_root"
+    },
+    {
+      "name": "SOCKET_eyes",
+      "type": "EMPTY",
+      "parent": "smiler_rig",
+      "parent_bone": "face_root"
+    },
+    {
+      "name": "SOCKET_mouth",
+      "type": "EMPTY",
+      "parent": "smiler_rig",
+      "parent_bone": "face_root"
+    },
+    {
+      "name": "HIT_body",
+      "type": "EMPTY",
+      "parent": "smiler_rig",
+      "parent_bone": "core_01"
+    }
+  ],
+  "meshes": [
+    {
+      "name": "smiler_body",
+      "triangles": 4072,
+      "materials": [
+        "smiler_void"
+      ],
+      "skinned": true,
+      "shape_keys": []
+    },
+    {
+      "name": "smiler_face",
+      "triangles": 2930,
+      "materials": [
+        "smiler_glow"
+      ],
+      "skinned": true,
+      "shape_keys": [
+        "Basis",
+        "grin_wide",
+        "grin_open",
+        "eyes_narrow",
+        "face_tear",
+        "face_collapse"
+      ]
+    }
+  ],
+  "armatures": [
+    {
+      "name": "smiler_rig",
+      "bones": [
+        "root",
+        "core_01",
+        "core_02",
+        "core_03",
+        "face_root",
+        "eye_L",
+        "eye_R",
+        "grin_upper",
+        "grin_lower",
+        "shoulder_L",
+        "arm_L_01",
+        "arm_L_02",
+        "arm_L_03",
+        "arm_L_04",
+        "shoulder_R",
+        "arm_R_01",
+        "arm_R_02",
+        "arm_R_03",
+        "arm_R_04",
+        "wisp_01_01",
+        "wisp_01_02",
+        "wisp_02_01",
+        "wisp_02_02",
+        "wisp_03_01",
+        "wisp_03_02",
+        "wisp_04_01",
+        "wisp_04_02",
+        "wisp_05_01",
+        "wisp_05_02",
+        "wisp_06_01",
+        "wisp_06_02"
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "attack_recover",
+      "frames": [
+        0.0,
+        15.0
+      ]
+    },
+    {
+      "name": "attack_strike",
+      "frames": [
+        0.0,
+        7.0
+      ]
+    },
+    {
+      "name": "attack_windup",
+      "frames": [
+        0.0,
+        9.0
+      ]
+    },
+    {
+      "name": "banish",
+      "frames": [
+        0.0,
+        24.0
+      ]
+    },
+    {
+      "name": "glide",
+      "frames": [
+        0.0,
+        60.0
+      ]
+    },
+    {
+      "name": "glide_hunt",
+      "frames": [
+        0.0,
+        45.0
+      ]
+    },
+    {
+      "name": "hover_idle",
+      "frames": [
+        0.0,
+        90.0
+      ]
+    },
+    {
+      "name": "jumpscare",
+      "frames": [
+        0.0,
+        39.0
+      ]
+    },
+    {
+      "name": "lit_recoil",
+      "frames": [
+        0.0,
+        24.0
+      ]
+    },
+    {
+      "name": "notice",
+      "frames": [
+        0.0,
+        10.0
+      ]
+    }
+  ],
+  "top_level_bounds": {
+    "smiler_rig": {
+      "min": [
+        -0.3876,
+        -0.2815,
+        0.2032
+      ],
+      "max": [
+        0.3876,
+        0.4686,
+        2.15
+      ],
+      "size": [
+        0.7753,
+        0.7501,
+        1.9468
+      ]
+    }
+  },
+  "triangles_total": 7002,
+  "rest_sockets": {
+    "JS_CAM": [
+      0.0,
+      1.95,
+      0.83
+    ],
+    "HIT_head": [
+      0.0,
+      1.88,
+      -0.0
+    ],
+    "SOCKET_eyes": [
+      0.0,
+      2.03,
+      0.23
+    ],
+    "SOCKET_mouth": [
+      0.0,
+      1.86,
+      0.28
+    ],
+    "HIT_body": [
+      0.0,
+      0.89,
+      -0.0
+    ]
+  },
+  "socket_warnings": [],
+  "materials": [
+    "smiler_glow",
+    "smiler_void"
+  ]
+}

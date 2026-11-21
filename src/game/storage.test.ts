@@ -58,6 +58,13 @@ check('comfort settings are validated too', () => {
   assert.equal(s.reduceFlashing, true);
 });
 
+check('the death-scene setting keeps known values only', () => {
+  put('level0.settings.v1', { version: 1, data: { jumpscares: 'reduced' } });
+  assert.equal(loadSettings().jumpscares, 'reduced');
+  put('level0.settings.v1', { version: 1, data: { jumpscares: 'extreme' } });
+  assert.equal(loadSettings().jumpscares, 'full');
+});
+
 check('settings are saved as a versioned envelope and read back', () => {
   const mine = { ...DEFAULT_SETTINGS, fov: 90, quality: 'high' as const };
   saveSettings(mine);

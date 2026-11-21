@@ -513,6 +513,11 @@ export const GameHud: React.FC<GameHudProps> = ({
               <span>VHS ARCHIVE 04</span>
               <span className="text-[#a89e79]">·</span>
               <span className="text-[#bfb693]">LEVEL 0 THRESHOLD</span>
+              {hud.modelsTotal > 0 && hud.modelsDone < hud.modelsTotal && (
+                <span className="text-[#a89e79]" role="status">
+                  · LOADING MODELS {hud.modelsDone}/{hud.modelsTotal}
+                </span>
+              )}
             </div>
             <button
               type="button"
@@ -691,6 +696,14 @@ export const GameHud: React.FC<GameHudProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* END OF THE DEATH SCENE */}
+      {hud.phase === 'jumpscare' && hud.signalLost && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black">
+          {!hud.reduceFlashing && <div className="signal-static absolute inset-0" />}
+          <span className="relative font-mono-hud text-2xl tracking-[0.4em] text-[#d8d2bf]">SIGNAL LOST</span>
         </div>
       )}
 

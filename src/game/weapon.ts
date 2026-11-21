@@ -1,5 +1,9 @@
 import * as THREE from 'three';
+import { isAssetMesh, type ModelInstance } from './assets';
 import { mergeStaticMeshes } from './meshMerge';
+
+/** Tip of the procedural suppressor in gun space; the Blender model's SOCKET_muzzle is lined up with it. */
+const MUZZLE_LOCAL = new THREE.Vector3(0, 0.02, -0.2975);
 
 interface ShellCasing {
   mesh: THREE.Mesh;
@@ -30,6 +34,17 @@ export class TacticalWeaponViewmodel {
   private reloadDuration = 1.25;
   private bobPhase = 0;
   private aimFactor = 0;
+
+  // Blender model (vm_pistol.glb); null keeps the procedural pistol.
+  private model: THREE.Object3D | null = null;
+  private proceduralParts: THREE.Object3D[] = [];
+  private mixer: THREE.AnimationMixer | null = null;
+  private readonly clipActions = new Map<string, THREE.AnimationAction>();
+  private oneShot: THREE.AnimationAction | null = null;
+  private oneShotWeight = 0;
+  private sprintBlend = 0;
+  private muzzleSocket: THREE.Object3D | null = null;
+  private ejectSocket: THREE.Object3D | null = null;
 
   private readonly hipPos = new THREE.Vector3(0.22, -0.2, -0.44);
   private readonly adsPos = new THREE.Vector3(0.0, -0.056, -0.29);
@@ -196,6 +211,74 @@ export class TacticalWeaponViewmodel {
     // 32 parts were 32 draw calls on screen all the time: join the static ones per material (the slide and the
     // flash keep their own groups, so they still move).
     mergeStaticMeshes(this.root);
+    this.proceduralParts = this.gunPivot.children.filter((c) => c !== this.flashGroup);
+  }
+
+  public get hasModel(): boolean {
+    return this.model !== null;
+  }
+
+  /**
+   * Swap the procedural pistol for the Blender model (model-contract.md, vm_pistol.glb). Hip and aim positions,
+   * recoil, bob and sway stay as they are; the clips add the hands, slide, reload and sprint poses.
+   */
+  public setModel(model: ModelInstance): void {
+    if (this.model) return;
+    this.model = model.root;
+    for (const part of this.proceduralParts) part.visible = false;
+    model.root.traverse((obj) => {
+      if (obj.name === 'SOCKET_muzzle') this.muzzleSocket = obj;
+      if (obj.name === 'SOCKET_eject') this.ejectSocket = obj;
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh) {
+        // Skinned bounds do not follow the clips, and the gun is always in view anyway.
+        mesh.frustumCulled = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      }
+    });
+    this.gunPivot.add(model.root);
+    if (this.muzzleSocket) {
+      // Line the model's muzzle up with the procedural one, so the sights and the muzzle flash stay put.
+      this.gunPivot.updateWorldMatrix(true, true);
+      const muzzle = this.muzzleSocket.getWorldPosition(new THREE.Vector3());
+      this.gunPivot.worldToLocal(muzzle);
+      model.root.position.add(MUZZLE_LOCAL.clone().sub(muzzle));
+    }
+    this.mixer = new THREE.AnimationMixer(model.root);
+    for (const clip of model.clips) this.clipActions.set(clip.name, this.mixer.clipAction(clip));
+    for (const name of ['idle', 'sprint']) {
+      const action = this.clipActions.get(name);
+      action?.setLoop(THREE.LoopRepeat, Infinity).play();
+    }
+    this.applyClipWeights();
+  }
+
+  /** A one-shot clip (fire, reload, empty) over the idle/sprint loop; it fades back out when it ends. */
+  private playOneShot(name: string, timeScale = 1): void {
+    const action = this.clipActions.get(name);
+    if (!action) return;
+    if (this.oneShot && this.oneShot !== action) this.oneShot.stop();
+    action.reset();
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+    action.timeScale = timeScale;
+    action.play();
+    this.oneShot = action;
+    this.oneShotWeight = 1;
+    this.applyClipWeights();
+  }
+
+  private applyClipWeights(): void {
+    const base = 1 - this.oneShotWeight;
+    this.clipActions.get('idle')?.setEffectiveWeight(base * (1 - this.sprintBlend));
+    this.clipActions.get('sprint')?.setEffectiveWeight(base * this.sprintBlend);
+    this.oneShot?.setEffectiveWeight(this.oneShotWeight);
+  }
+
+  /** Dry fire: the model's trigger and hammer click on an empty chamber. */
+  public triggerEmpty(): void {
+    this.playOneShot('empty');
   }
 
   public get muzzleLightIntensity(): number {
@@ -204,6 +287,10 @@ export class TacticalWeaponViewmodel {
 
   /** World position of the muzzle light (just past the suppressor). */
   public getMuzzleWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    if (this.muzzleSocket) {
+      this.muzzleSocket.updateWorldMatrix(true, false);
+      return this.muzzleSocket.getWorldPosition(target);
+    }
     this.gunPivot.updateWorldMatrix(true, false);
     return target.set(0, 0.03, -0.34).applyMatrix4(this.gunPivot.matrixWorld);
   }
@@ -223,8 +310,14 @@ export class TacticalWeaponViewmodel {
     this.flashGroup.scale.set(s, s, 1);
     this.muzzleIntensity = this.muzzleLightEnabled ? 6.5 : 0;
 
+    this.playOneShot('fire');
+
     const mesh = new THREE.Mesh(this.casingGeo, this.casingMat);
     const worldStart = new THREE.Vector3(0.18, -0.14, -0.42).applyMatrix4(camera.matrixWorld);
+    if (this.ejectSocket) {
+      this.ejectSocket.updateWorldMatrix(true, false);
+      this.ejectSocket.getWorldPosition(worldStart);
+    }
     mesh.position.copy(worldStart);
 
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -245,6 +338,8 @@ export class TacticalWeaponViewmodel {
   public triggerReload(duration: number): void {
     this.reloadDuration = duration;
     this.reloadTimer = duration;
+    const reload = this.clipActions.get('reload');
+    if (reload) this.playOneShot('reload', reload.getClip().duration / duration);
   }
 
   public snapAim(isAiming: boolean): void {
@@ -264,6 +359,11 @@ export class TacticalWeaponViewmodel {
     this.muzzleIntensity = 0;
     this.reloadTimer = 0;
     this.bobPhase = 0;
+    this.oneShot?.stop();
+    this.oneShot = null;
+    this.oneShotWeight = 0;
+    this.sprintBlend = 0;
+    this.applyClipWeights();
     this.snapAim(false);
     for (const s of this.shells) {
       this.shellsGroup.remove(s.mesh);
@@ -310,7 +410,8 @@ export class TacticalWeaponViewmodel {
     if (this.reloadTimer > 0) {
       this.reloadTimer = Math.max(0, this.reloadTimer - delta);
       const t = 1 - this.reloadTimer / this.reloadDuration;
-      const curve = Math.sin(t * Math.PI);
+      // The model's reload clip moves the hands and magazine itself; only a slight dip is added.
+      const curve = Math.sin(t * Math.PI) * (this.clipActions.has('reload') ? 0.25 : 1);
       reloadDipY = -curve * 0.14;
       reloadRollZ = curve * 0.52;
       reloadPitchX = -curve * 0.35;
@@ -331,6 +432,26 @@ export class TacticalWeaponViewmodel {
       reloadRollZ,
     );
 
+    if (this.mixer) {
+      this.sprintBlend = THREE.MathUtils.damp(
+        this.sprintBlend,
+        isSprinting && isMoving && this.reloadTimer <= 0 ? 1 : 0,
+        8,
+        delta,
+      );
+      if (this.oneShot && !this.oneShot.isRunning()) {
+        // Finished (held on its last frame): fade back to the loop.
+        this.oneShotWeight = THREE.MathUtils.damp(this.oneShotWeight, 0, 22, delta);
+        if (this.oneShotWeight < 0.01) {
+          this.oneShot.stop();
+          this.oneShot = null;
+          this.oneShotWeight = 0;
+        }
+      }
+      this.applyClipWeights();
+      this.mixer.update(delta);
+    }
+
     for (let i = this.shells.length - 1; i >= 0; i--) {
       const s = this.shells[i];
       s.life -= delta;
@@ -350,7 +471,7 @@ export class TacticalWeaponViewmodel {
     this.shellsGroup.parent?.remove(this.shellsGroup);
     const disposables = new Set<{ dispose: () => void }>();
     this.root.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return;
+      if (!(obj instanceof THREE.Mesh) || isAssetMesh(obj)) return;
       disposables.add(obj.geometry);
       for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
         disposables.add(m);

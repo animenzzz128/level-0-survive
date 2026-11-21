@@ -519,10 +519,22 @@ root
 
 ---
 
-## 9. 接入计划（代码侧，资产到位后由我实施）
+## 9. 接入计划与完成情况
 
-| 阶段 | 内容 | 验收 |
+2026-11-20 全部 5 个模型（`props`、三个实体、`vm_pistol`）由 `tools/blender/build_*.py` 生成并接入游戏，放在同一个 PR 里（一批一个 PR，你只需要试玩一次）。每个模型都是可选的：没加载到时用原来的程序化模型；网址加 `?models=0` 可以全部关掉。
+
+| 阶段 | 内容 | 状态 |
 |---|---|---|
+| 0 | 加载：`src/game/assets.ts`（`GLTFLoader`、缓存、`SkeletonUtils.clone`）；标题页显示「LOADING MODELS n/5」；加载失败自动回退 | 完成。**未做**：Meshopt 网格压缩和 KTX2 贴图（5 个文件合计约 7.8 MB，贴图是 PNG/JPEG） |
+| 1 | 道具：灯盒仍然实例化；门、出口门、拾取物、桌子、地标、锥桶、掉落的吊顶板 | 完成。高画质出生点 92 → 73 次绘制 |
+| 2 | 实体：`entities.ts` 的 `useModel` / `animateModel`；状态到片段映射加交叉淡入淡出，播放速度 = 实际速度 ÷ 制作速度；命中框挂在 `HIT_*` 挂点上；Smiler 和 Skin-Stealer 的形态键由代码驱动；伪装瓶用 `disguise_bottle` 节点 | 完成。`entities.test.ts` 通过（程序化回退）。蒙皮网格用固定包围球做剔除 |
+| 3 | 击杀演出：新的 `jumpscare` 阶段；相机交给 `JS_CAM`、看向 `SOCKET_mouth`；三种实体各自的灯光和音效（5.2–5.4）；「SIGNAL LOST」；0.8 s 后可跳过；设置「Death scenes：Full / Reduced / Off」 | 完成。与 5.1 的差异：`JS_CAM` 在 v1 里是静止的（代码负责甩镜和推近）；「关闭」直接进结算页，没有淡出 |
+| 4 | 枪模加手臂：`weapon.ts` 的 `setModel`；`idle`/`sprint` 循环，`fire`/`reload`/`empty` 单次；枪口光和抛壳用挂点 | 完成。现有的腰射位置下手臂大多在屏幕外，是否调整等试玩 |
+| 5 | 性能：着色器预热（模型加载后编译一次实体材质） | 高画质、种子 202611：出生点 73 次绘制（目标 ≤ 90）；面对 Howler 103 次（不用模型时 142 次） |
+
+调试：`__BACKROOMS_DEBUG__.killBy('howler' | 'smiler' | 'brute')` 直接触发对应的击杀演出。
+
+---|---|---|
 | 0 | 加载系统：`GLTFLoader` 加 Meshopt/KTX2 解码器，统一缓存；标题页加进度条；资产还没到的继续用现有程序化模型占位 | 构建通过，加载失败时自动回退到占位模型 |
 | 1 | 替换道具：静态 glb；吊顶灯盒保持实例化；门按铰链节点开合；拾取物保持现有的旋转和浮动 | 绘制次数不增加（用 `__BACKROOMS_DEBUG__.perf()` 测） |
 | 2 | 替换实体：每个实体一份 `SkeletonUtils.clone` 加一个 `AnimationMixer`；状态到片段的映射用 0.2–0.3 s 交叉淡入淡出；播放速度 = 实际速度 ÷ 制作速度；命中框挂到骨骼上；只有身体投影 | 爆头判定、前摇时机、僵直和死亡时长与现有测试一致；`entities.test.ts` 继续通过 |

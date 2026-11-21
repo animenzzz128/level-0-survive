@@ -48,8 +48,9 @@ Reviews and audits of the game are in [docs/review](docs/review/README.md).
 
 ## Art & AI
 
-- **Art and sound:** every texture and sound is generated in code (`src/game/textures.ts`, `src/game/audio.ts`); there are no image or audio files and no third-party assets. The game makes no AI calls at runtime.
-- **Planned models:** design sheets, image prompts and true-scale blueprints for Blender models of the entities and props are in [docs/design/art](docs/design/art/art-bible.md).
+- **Textures and sound** are generated in code (`src/game/textures.ts`, `src/game/audio.ts`); there are no audio files and no third-party assets. The game makes no AI calls at runtime.
+- **3D models** (the three entities, the pistol and arms, pickups, furniture, doors and landmarks) are built by Blender scripts in [tools/blender](tools/blender/README.md) into `public/assets/models/`. Every model is optional: the procedural placeholder stays as the fallback, and `?models=0` turns them all off. Design sheets, the model contract and concept reviews are in [docs/design/art](docs/design/art/art-bible.md).
+- **Death scenes:** the creature that kills you gets a short close-up before the results (Settings → Death scenes: Full, Reduced or Off).
 - **Code:** the first build was generated in Google AI Studio. Later work (bug fixes, the survival-horror loop, layouts, onboarding, settings, performance, entity AI and pacing) was done with Claude Code (Claude Opus 5.5) as an AI pair programmer, under Jacky Yao's direction.
 
 ## License and credits

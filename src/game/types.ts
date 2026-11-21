@@ -1,6 +1,7 @@
 import type { KeyHints } from './controls';
 
-export type GamePhase = 'title' | 'playing' | 'paused' | 'victory' | 'gameover';
+/** 'jumpscare': the killer's death scene, between the fatal blow and the results screen (no HUD, no input). */
+export type GamePhase = 'title' | 'playing' | 'paused' | 'jumpscare' | 'victory' | 'gameover';
 
 export type DifficultyMode = 'standard' | 'nightmare';
 
@@ -75,6 +76,8 @@ export interface HudState {
   damageDirectionAlpha: number;
   /** What ended the run (results screen). */
   killedBy: EntityArchetype | null;
+  /** End of the death scene: the screen is static and "SIGNAL LOST". */
+  signalLost: boolean;
   reduceFlashing: boolean;
   hitmarkerState: 'none' | 'hit' | 'head' | 'kill' | 'immune';
   crosshairSpread: number;
@@ -92,6 +95,9 @@ export interface HudState {
   tapeLog: HudTapeLog | null;
   /** Layout seed of the current run (shown on the results screen; replayable). */
   seed: number;
+  /** 3D models fetched so far (loaded or failed) out of modelsTotal; the title screen shows it until done. */
+  modelsDone: number;
+  modelsTotal: number;
   interactPrompt: string | null;
   webglError: string | null;
 }

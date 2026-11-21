@@ -1,0 +1,304 @@
+{
+  "file": "ent_skin_stealer.glb",
+  "bytes": 2033408,
+  "nodes": [
+    {
+      "name": "skin_stealer_rig",
+      "type": "ARMATURE",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "disguise_bottle",
+      "type": "MESH",
+      "parent": "skin_stealer_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "JS_CAM",
+      "type": "EMPTY",
+      "parent": "skin_stealer_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "mask",
+      "type": "MESH",
+      "parent": "skin_stealer_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "skin_stealer_body",
+      "type": "MESH",
+      "parent": "skin_stealer_rig",
+      "parent_bone": null
+    },
+    {
+      "name": "HIT_head",
+      "type": "EMPTY",
+      "parent": "skin_stealer_rig",
+      "parent_bone": "head"
+    },
+    {
+      "name": "SOCKET_mouth",
+      "type": "EMPTY",
+      "parent": "skin_stealer_rig",
+      "parent_bone": "head"
+    },
+    {
+      "name": "SOCKET_hand_R",
+      "type": "EMPTY",
+      "parent": "skin_stealer_rig",
+      "parent_bone": "hand_R"
+    },
+    {
+      "name": "HIT_body",
+      "type": "EMPTY",
+      "parent": "skin_stealer_rig",
+      "parent_bone": "spine_01"
+    }
+  ],
+  "meshes": [
+    {
+      "name": "disguise_bottle",
+      "triangles": 776,
+      "materials": [
+        "almond_steel",
+        "almond_cap",
+        "ss_slime"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "mask",
+      "triangles": 939,
+      "materials": [
+        "ss_human_skin"
+      ],
+      "skinned": true,
+      "shape_keys": [
+        "Basis",
+        "mask_slip",
+        "mouth_hole_open"
+      ]
+    },
+    {
+      "name": "skin_stealer_body",
+      "triangles": 12952,
+      "materials": [
+        "ss_skin",
+        "ss_human_skin",
+        "ss_slime"
+      ],
+      "skinned": true,
+      "shape_keys": [
+        "Basis",
+        "mouth_hole_open"
+      ]
+    }
+  ],
+  "armatures": [
+    {
+      "name": "skin_stealer_rig",
+      "bones": [
+        "root",
+        "pelvis",
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "neck",
+        "head",
+        "jaw",
+        "mask",
+        "chest_flap",
+        "back_flap",
+        "clavicle_L",
+        "upperarm_L",
+        "forearm_L",
+        "hand_L",
+        "thumb_01_L",
+        "thumb_02_L",
+        "index_01_L",
+        "index_02_L",
+        "index_03_L",
+        "middle_01_L",
+        "middle_02_L",
+        "middle_03_L",
+        "ring_01_L",
+        "ring_02_L",
+        "ring_03_L",
+        "clavicle_R",
+        "upperarm_R",
+        "forearm_R",
+        "hand_R",
+        "thumb_01_R",
+        "thumb_02_R",
+        "index_01_R",
+        "index_02_R",
+        "index_03_R",
+        "middle_01_R",
+        "middle_02_R",
+        "middle_03_R",
+        "ring_01_R",
+        "ring_02_R",
+        "ring_03_R",
+        "thigh_L",
+        "shin_L",
+        "foot_L",
+        "toe_L",
+        "thigh_R",
+        "shin_R",
+        "foot_R",
+        "toe_R"
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "attack_recover",
+      "frames": [
+        0.0,
+        18.0
+      ]
+    },
+    {
+      "name": "attack_strike",
+      "frames": [
+        0.0,
+        8.0
+      ]
+    },
+    {
+      "name": "attack_windup",
+      "frames": [
+        0.0,
+        9.0
+      ]
+    },
+    {
+      "name": "death",
+      "frames": [
+        0.0,
+        24.0
+      ]
+    },
+    {
+      "name": "disguised_shudder",
+      "frames": [
+        0.0,
+        12.0
+      ]
+    },
+    {
+      "name": "idle",
+      "frames": [
+        0.0,
+        90.0
+      ]
+    },
+    {
+      "name": "jumpscare",
+      "frames": [
+        0.0,
+        45.0
+      ]
+    },
+    {
+      "name": "lurch",
+      "frames": [
+        0.0,
+        18.0
+      ]
+    },
+    {
+      "name": "mimic_tilt",
+      "frames": [
+        0.0,
+        40.0
+      ]
+    },
+    {
+      "name": "reveal",
+      "frames": [
+        0.0,
+        21.0
+      ]
+    },
+    {
+      "name": "stagger",
+      "frames": [
+        0.0,
+        15.0
+      ]
+    },
+    {
+      "name": "stalk",
+      "frames": [
+        0.0,
+        24.0
+      ]
+    },
+    {
+      "name": "walk_limp",
+      "frames": [
+        0.0,
+        27.0
+      ]
+    }
+  ],
+  "top_level_bounds": {
+    "skin_stealer_rig": {
+      "min": [
+        -0.4619,
+        -0.2455,
+        -0.0
+      ],
+      "max": [
+        0.4658,
+        0.1788,
+        2.27
+      ],
+      "size": [
+        0.9277,
+        0.4243,
+        2.27
+      ]
+    }
+  },
+  "triangles_total": 14667,
+  "rest_sockets": {
+    "JS_CAM": [
+      0.0,
+      2.03,
+      0.78
+    ],
+    "HIT_head": [
+      0.0,
+      2.02,
+      0.105
+    ],
+    "SOCKET_mouth": [
+      -0.0013,
+      2.0305,
+      0.205
+    ],
+    "SOCKET_hand_R": [
+      -0.4268,
+      0.8278,
+      0.0005
+    ],
+    "HIT_body": [
+      -0.0,
+      1.035,
+      -0.02
+    ]
+  },
+  "socket_warnings": [],
+  "materials": [
+    "almond_cap",
+    "almond_steel",
+    "ss_human_skin",
+    "ss_skin",
+    "ss_slime"
+  ]
+}

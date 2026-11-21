@@ -1,0 +1,751 @@
+{
+  "file": "props.glb",
+  "bytes": 2258832,
+  "nodes": [
+    {
+      "name": "prop_almond_water",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_almond_water_mesh",
+      "type": "MESH",
+      "parent": "prop_almond_water",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_vhs",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_vhs_shell",
+      "type": "MESH",
+      "parent": "prop_vhs",
+      "parent_bone": null
+    },
+    {
+      "name": "vhs_label",
+      "type": "MESH",
+      "parent": "prop_vhs",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_battery",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "battery_band",
+      "type": "MESH",
+      "parent": "prop_battery",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_battery_mesh",
+      "type": "MESH",
+      "parent": "prop_battery",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_ammo_can",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_ammo_can_mesh",
+      "type": "MESH",
+      "parent": "prop_ammo_can",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_office_table",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_office_table_mesh",
+      "type": "MESH",
+      "parent": "prop_office_table",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_desk_hide",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_desk_hide_mesh",
+      "type": "MESH",
+      "parent": "prop_desk_hide",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_door",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_door_mesh",
+      "type": "MESH",
+      "parent": "prop_door",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_exit_door",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "exit_beacon",
+      "type": "MESH",
+      "parent": "prop_exit_door",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_exit_door_mesh",
+      "type": "MESH",
+      "parent": "prop_exit_door",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_troffer",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "troffer_frame",
+      "type": "MESH",
+      "parent": "prop_troffer",
+      "parent_bone": null
+    },
+    {
+      "name": "troffer_lens",
+      "type": "MESH",
+      "parent": "prop_troffer",
+      "parent_bone": null
+    },
+    {
+      "name": "lm_vending",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "lm_vending_mesh",
+      "type": "MESH",
+      "parent": "lm_vending",
+      "parent_bone": null
+    },
+    {
+      "name": "vending_glass",
+      "type": "MESH",
+      "parent": "lm_vending",
+      "parent_bone": null
+    },
+    {
+      "name": "lm_cooler",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "lm_cooler_mesh",
+      "type": "MESH",
+      "parent": "lm_cooler",
+      "parent_bone": null
+    },
+    {
+      "name": "lm_crt",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "crt_screen",
+      "type": "MESH",
+      "parent": "lm_crt",
+      "parent_bone": null
+    },
+    {
+      "name": "lm_crt_mesh",
+      "type": "MESH",
+      "parent": "lm_crt",
+      "parent_bone": null
+    },
+    {
+      "name": "lm_neon",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "lm_neon_mesh",
+      "type": "MESH",
+      "parent": "lm_neon",
+      "parent_bone": null
+    },
+    {
+      "name": "neon_face",
+      "type": "MESH",
+      "parent": "lm_neon",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_cone",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_cone_mesh",
+      "type": "MESH",
+      "parent": "prop_cone",
+      "parent_bone": null
+    },
+    {
+      "name": "prop_fallen_tile",
+      "type": "EMPTY",
+      "parent": null,
+      "parent_bone": null
+    },
+    {
+      "name": "prop_fallen_tile_mesh",
+      "type": "MESH",
+      "parent": "prop_fallen_tile",
+      "parent_bone": null
+    }
+  ],
+  "meshes": [
+    {
+      "name": "prop_almond_water_mesh",
+      "triangles": 864,
+      "materials": [
+        "almond_steel",
+        "almond_cap"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_vhs_shell",
+      "triangles": 112,
+      "materials": [
+        "vhs_shell"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "vhs_label",
+      "triangles": 2,
+      "materials": [
+        "vhs_label"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "battery_band",
+      "triangles": 120,
+      "materials": [
+        "battery_band"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_battery_mesh",
+      "triangles": 360,
+      "materials": [
+        "steel_bare",
+        "battery_body"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_ammo_can_mesh",
+      "triangles": 548,
+      "materials": [
+        "ammo_olive"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_office_table_mesh",
+      "triangles": 604,
+      "materials": [
+        "table_top",
+        "table_metal",
+        "rubber_black"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_desk_hide_mesh",
+      "triangles": 756,
+      "materials": [
+        "table_top",
+        "table_metal",
+        "rubber_black"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_door_mesh",
+      "triangles": 672,
+      "materials": [
+        "door_paint",
+        "door_steel"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "exit_beacon",
+      "triangles": 190,
+      "materials": [
+        "exit_beacon"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_exit_door_mesh",
+      "triangles": 2010,
+      "materials": [
+        "exit_frame",
+        "exit_steel",
+        "exit_hardware",
+        "steel_bare",
+        "plastic_dark"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "troffer_frame",
+      "triangles": 34,
+      "materials": [
+        "troffer_frame"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "troffer_lens",
+      "triangles": 2,
+      "materials": [
+        "troffer_lens"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "lm_vending_mesh",
+      "triangles": 570,
+      "materials": [
+        "vending_body",
+        "rubber_black",
+        "plastic_dark",
+        "vending_panel",
+        "steel_bare"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "vending_glass",
+      "triangles": 14,
+      "materials": [
+        "vending_glass"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "lm_cooler_mesh",
+      "triangles": 1420,
+      "materials": [
+        "cooler_body",
+        "plastic_dark",
+        "steel_bare",
+        "rubber_black",
+        "cooler_bottle"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "crt_screen",
+      "triangles": 48,
+      "materials": [
+        "crt_screen"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "lm_crt_mesh",
+      "triangles": 1766,
+      "materials": [
+        "cart_metal",
+        "steel_bare",
+        "rubber_black",
+        "crt_tv",
+        "plastic_dark",
+        "exit_hardware"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "lm_neon_mesh",
+      "triangles": 552,
+      "materials": [
+        "neon_board",
+        "steel_bare",
+        "rubber_black"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "neon_face",
+      "triangles": 2,
+      "materials": [
+        "neon_face"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_cone_mesh",
+      "triangles": 252,
+      "materials": [
+        "rubber_black",
+        "cone_orange"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    },
+    {
+      "name": "prop_fallen_tile_mesh",
+      "triangles": 168,
+      "materials": [
+        "fallen_tile"
+      ],
+      "skinned": false,
+      "shape_keys": []
+    }
+  ],
+  "armatures": [],
+  "actions": [],
+  "top_level_bounds": {
+    "prop_almond_water": {
+      "min": [
+        -1.4,
+        -0.1,
+        0.0
+      ],
+      "max": [
+        -1.2,
+        0.1,
+        0.415
+      ],
+      "size": [
+        0.2,
+        0.2,
+        0.415
+      ]
+    },
+    "prop_vhs": {
+      "min": [
+        -1.03,
+        -0.11,
+        0.0
+      ],
+      "max": [
+        -0.67,
+        0.11,
+        0.055
+      ],
+      "size": [
+        0.36,
+        0.22,
+        0.055
+      ]
+    },
+    "prop_battery": {
+      "min": [
+        -0.5,
+        -0.05,
+        0.0
+      ],
+      "max": [
+        -0.4,
+        0.05,
+        0.18
+      ],
+      "size": [
+        0.1,
+        0.1,
+        0.18
+      ]
+    },
+    "prop_ammo_can": {
+      "min": [
+        -0.176,
+        -0.125,
+        0.0
+      ],
+      "max": [
+        0.2697,
+        0.125,
+        0.2412
+      ],
+      "size": [
+        0.4457,
+        0.25,
+        0.2412
+      ]
+    },
+    "prop_office_table": {
+      "min": [
+        -3.975,
+        0.94,
+        0.0
+      ],
+      "max": [
+        -2.825,
+        1.66,
+        0.78
+      ],
+      "size": [
+        1.15,
+        0.72,
+        0.78
+      ]
+    },
+    "prop_desk_hide": {
+      "min": [
+        -2.525,
+        0.94,
+        0.0
+      ],
+      "max": [
+        -1.375,
+        1.66,
+        0.78
+      ],
+      "size": [
+        1.15,
+        0.72,
+        0.78
+      ]
+    },
+    "prop_door": {
+      "min": [
+        0.3,
+        2.9295,
+        0.0
+      ],
+      "max": [
+        1.52,
+        3.0705,
+        2.26
+      ],
+      "size": [
+        1.22,
+        0.141,
+        2.26
+      ]
+    },
+    "prop_exit_door": {
+      "min": [
+        2.29,
+        2.8717,
+        0.0
+      ],
+      "max": [
+        4.5,
+        3.1,
+        2.835
+      ],
+      "size": [
+        2.21,
+        0.2283,
+        2.835
+      ]
+    },
+    "prop_troffer": {
+      "min": [
+        -0.83,
+        0.61,
+        2.55
+      ],
+      "max": [
+        -0.07,
+        1.99,
+        2.6
+      ],
+      "size": [
+        0.76,
+        1.38,
+        0.05
+      ]
+    },
+    "lm_vending": {
+      "min": [
+        -4.475,
+        2.6,
+        0.0
+      ],
+      "max": [
+        -3.525,
+        3.4,
+        1.9
+      ],
+      "size": [
+        0.95,
+        0.8,
+        1.9
+      ]
+    },
+    "lm_cooler": {
+      "min": [
+        -3.14,
+        2.81,
+        0.0
+      ],
+      "max": [
+        -2.76,
+        3.19,
+        1.47
+      ],
+      "size": [
+        0.38,
+        0.38,
+        1.47
+      ]
+    },
+    "lm_crt": {
+      "min": [
+        -2.4,
+        2.725,
+        0.0
+      ],
+      "max": [
+        -1.6,
+        3.275,
+        1.22
+      ],
+      "size": [
+        0.8,
+        0.55,
+        1.22
+      ]
+    },
+    "lm_neon": {
+      "min": [
+        -1.325,
+        3.265,
+        1.2837
+      ],
+      "max": [
+        -0.175,
+        3.33,
+        1.84
+      ],
+      "size": [
+        1.15,
+        0.065,
+        0.5563
+      ]
+    },
+    "prop_cone": {
+      "min": [
+        1.39,
+        1.14,
+        0.0
+      ],
+      "max": [
+        1.71,
+        1.46,
+        0.58
+      ],
+      "size": [
+        0.32,
+        0.32,
+        0.58
+      ]
+    },
+    "prop_fallen_tile": {
+      "min": [
+        0.41,
+        0.86,
+        0.0
+      ],
+      "max": [
+        1.09,
+        1.54,
+        0.0465
+      ],
+      "size": [
+        0.68,
+        0.68,
+        0.0465
+      ]
+    }
+  },
+  "triangles_total": 11066,
+  "rest_sockets": {},
+  "socket_warnings": [],
+  "materials": [
+    "almond_cap",
+    "almond_steel",
+    "ammo_olive",
+    "battery_band",
+    "battery_body",
+    "cart_metal",
+    "cone_orange",
+    "cooler_body",
+    "cooler_bottle",
+    "crt_screen",
+    "crt_tv",
+    "door_paint",
+    "door_steel",
+    "exit_beacon",
+    "exit_frame",
+    "exit_hardware",
+    "exit_steel",
+    "fallen_tile",
+    "neon_board",
+    "neon_face",
+    "plastic_dark",
+    "rubber_black",
+    "steel_bare",
+    "table_metal",
+    "table_top",
+    "troffer_frame",
+    "troffer_lens",
+    "vending_body",
+    "vending_glass",
+    "vending_panel",
+    "vhs_label",
+    "vhs_shell"
+  ]
+}

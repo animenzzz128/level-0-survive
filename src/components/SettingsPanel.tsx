@@ -1,7 +1,7 @@
 import React from 'react';
 import { horizontalFov } from '../game/aim';
 import { ACTIONS, DEFAULT_BINDINGS, GameAction, keyLabel, rebind } from '../game/controls';
-import { GameSettings, QualityLevel, SETTINGS_LIMITS } from '../game/storage';
+import { GameSettings, JumpscareMode, QualityLevel, SETTINGS_LIMITS } from '../game/storage';
 
 const actionLabel = (id: GameAction) => ACTIONS.find((a) => a.id === id)?.label ?? id;
 
@@ -211,6 +211,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             checked={settings.reduceFlashing}
             onChange={(v) => set('reduceFlashing', v)}
           />
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="setting-jumpscares" className="text-sm text-[#cfc6a6]">
+              Death scenes
+            </label>
+            <select
+              id="setting-jumpscares"
+              value={settings.jumpscares}
+              onChange={(e) => set('jumpscares', e.target.value as JumpscareMode)}
+              className="border border-[#d4be74]/30 bg-[#17150e] px-3 py-2 text-sm text-[#f5efe0]"
+            >
+              <option value="full">Full</option>
+              <option value="reduced">Reduced</option>
+              <option value="off">Off</option>
+            </select>
+            <span className="text-sm text-[#a89e79]">
+              {settings.jumpscares === 'full'
+                ? 'The creature that kills you gets a short close-up before the results.'
+                : settings.jumpscares === 'reduced'
+                  ? 'The close-up without flashes or a sudden camera turn, and quieter.'
+                  : 'Straight to the results screen.'}
+            </span>
+          </div>
 
           <h3 className="mt-1 font-mono-hud text-sm tracking-wider text-[#e8b838]">INTERFACE</h3>
           <Slider
