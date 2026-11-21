@@ -42,5 +42,8 @@ Built with Google AI Studio and Claude (Anthropic) under Jacky Yao's direction.
 
 - The 3D models in `public/assets/models/` are built by Blender 4.5 scripts in `tools/blender/`, written with
   Claude Code under Jacky Yao's direction. They are original to this game.
+- The Skin-Stealer's body shape starts as a mesh made by Tencent's Hunyuan3D-2mv from the concept turnaround (the
+  Tencent Hunyuan 3D 2.0 Community License; Tencent claims no rights in its output). How it was made:
+  `tools/hunyuan/README.md`.
 - The concept images in `docs/design/art/concepts/` were made with an AI image tool at Jacky Yao's direction. Which
   tool, and when, is still to be recorded there.

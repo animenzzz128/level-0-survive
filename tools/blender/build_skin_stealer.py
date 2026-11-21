@@ -2705,4 +2705,5 @@ def main():
         previews(arm, body, mask, bottle, acts)
 
 
-main()
+if __name__ == '__main__':   # build_skin_stealer_scan.py imports this file for the rig, clips, mask and bottle
+    main()

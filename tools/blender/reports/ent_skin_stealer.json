@@ -1,6 +1,6 @@
 {
   "file": "ent_skin_stealer.glb",
-  "bytes": 2033408,
+  "bytes": 2329116,
   "nodes": [
     {
       "name": "skin_stealer_rig",
@@ -71,7 +71,7 @@
     },
     {
       "name": "mask",
-      "triangles": 939,
+      "triangles": 828,
       "materials": [
         "ss_human_skin"
       ],
@@ -84,11 +84,9 @@
     },
     {
       "name": "skin_stealer_body",
-      "triangles": 12952,
+      "triangles": 11433,
       "materials": [
-        "ss_skin",
-        "ss_human_skin",
-        "ss_slime"
+        "ss_skin"
       ],
       "skinned": true,
       "shape_keys": [
@@ -249,23 +247,23 @@
   "top_level_bounds": {
     "skin_stealer_rig": {
       "min": [
-        -0.4619,
-        -0.2455,
-        -0.0
+        -0.5852,
+        -0.2776,
+        0.0
       ],
       "max": [
-        0.4658,
-        0.1788,
-        2.27
+        0.5937,
+        0.2453,
+        2.2783
       ],
       "size": [
-        0.9277,
-        0.4243,
-        2.27
+        1.1789,
+        0.523,
+        2.2783
       ]
     }
   },
-  "triangles_total": 14667,
+  "triangles_total": 13037,
   "rest_sockets": {
     "JS_CAM": [
       0.0,
@@ -283,12 +281,12 @@
       0.205
     ],
     "SOCKET_hand_R": [
-      -0.4268,
-      0.8278,
-      0.0005
+      -0.4858,
+      0.5945,
+      -0.0268
     ],
     "HIT_body": [
-      -0.0,
+      0.0,
       1.035,
       -0.02
     ]
